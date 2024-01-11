@@ -68,8 +68,6 @@ def get_source_article_data(page):
 
 # Get user data
 def get_users_data(page):
-    page.evaluate('window.scrollTo(0, document.body.scrollHeight);')
-
     # Activate comment section
     button_class = '.caas-button.view-cmts-cta.showCmtCount'
     page.wait_for_selector(button_class)
@@ -80,7 +78,7 @@ def get_users_data(page):
 
     # Load all comments
     load_comments_loc = ".spcv_load-more-messages"
-    page.set_default_timeout(10000)
+    page.set_default_timeout(5000)
     try:
         button = iframe_locator.locator(load_comments_loc)
         while button:
@@ -102,8 +100,11 @@ def get_users_data(page):
         private_profile_loc = 'div[class*="src-views-Profile-index__PrivateProfile"]'
         try:
             private = iframe_locator.locator(private_profile_loc)
-            is_private = True
-            print("its private")
+            if private.inner_text().__contains__("private mode"):
+                is_private = True
+                print("its private")
+            else:
+                is_private = False
         except Exception as e:
             print("its not private")
             is_private = False
@@ -148,6 +149,9 @@ def get_users_data(page):
 
                 # Get source article data
                 source_article = comment_section.query_selector(source_article_locator).get_attribute('href')
+
+                if "finance.yahoo.com" in source_article:
+                    continue
                 source_article_page = context.new_page()
                 source_article_page.goto(source_article, timeout=3000, wait_until="domcontentloaded")
                 source_article_data = get_source_article_data(source_article_page)
@@ -174,11 +178,14 @@ def get_users_data(page):
             users_objs.append(user)
             close_profile_button = iframe_locator.locator('button[title="Close the modal"]')
             close_profile_button.click()
-        return users_objs
+        else:
+            close_profile_button = iframe_locator.locator('button[title="Close the modal"]')
+            close_profile_button.click()
+    return users_objs
 
 
 # Process each article by getting article and users data
-def process_article(page, link, retries=90):
+def process_article(page, link, retries=3):
     for i in range(retries):
         try:
             page.goto(link, timeout=3000, wait_until="domcontentloaded")
@@ -204,20 +211,26 @@ with sync_playwright() as p:
             page.goto(start_link, timeout=3000, wait_until="domcontentloaded")
 
             # Scroll to the bottom
-            for i in range(18):
+            for i in range(10):
                 page.evaluate('window.scrollTo(0, document.body.scrollHeight);')
                 time.sleep(0.5)
 
             # Parse through each article
             stream_items = page.query_selector_all('.stream-item')
             for stream_item in stream_items:
+
+                category = json.loads(stream_item.get_attribute('data-i13n-cfg'))['categoryLabel']
                 item_link = stream_item.query_selector('a').get_attribute('href')
+
                 if 'news.yahoo.com' not in item_link:
                     item_link = 'https://news.yahoo.com' + item_link
                 if item_link not in visited_articles and item_link.__contains__('.html'):
                     visited_articles.add(item_link)
                     current_page = context.new_page()
                     article_data, users_data = process_article(current_page, item_link)
+
+                    article_data['category'] = category
+
                     articles.append(article_data)
                     users.append(users_data)
         except Exception as e:
