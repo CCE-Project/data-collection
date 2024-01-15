@@ -20,6 +20,7 @@ visited_users = set()
 
 # Get article data for whole page
 def get_article_data(page):
+    page.set_default_timeout(5000)
     json_selector = 'script[type="application/ld+json"]'
     json_content = page.inner_text(json_selector)
     data = json.loads(json_content)
@@ -56,23 +57,6 @@ def get_article_data(page):
         "num_comments": num_comments,
         "outlet_link": news_outlet_link,
         "outlet_name": news_outlet_name
-    }
-
-
-# Get article data for users comment section
-def get_source_article_data(page):
-    json_selector = 'script[type="application/ld+json"]'
-    json_content = page.inner_text(json_selector)
-    data = json.loads(json_content)
-
-    news_outlet_link = data.get('provider').get('url')
-    news_outlet_name = data.get('provider').get('name')
-    og_title = data.get('headline')
-
-    return {
-        "title": og_title,
-        'outlet_link': news_outlet_link,
-        'outlet_name': news_outlet_name
     }
 
 
@@ -118,18 +102,19 @@ def parse_comment_sections(iframe_locator, context):
         # Get source article data
         source_article = comment_section.query_selector(source_article_locator).get_attribute('href')
 
-        if "finance.yahoo.com" in source_article:
+        if "news.yahoo.com" not in source_article:
             comment_section.dispose()
             continue
         source_article_page = context.new_page()
         try:
             source_article_page.goto(source_article, timeout=3000, wait_until="domcontentloaded")
-            source_article_data = get_source_article_data(source_article_page)
+            source_article_data = get_article_data(source_article_page)
             source_article_page.close()
         except Exception as e:
             print(e)
             print("error in parsing comments section")
             comment_section.dispose()
+            source_article_page.close()
             continue
 
         # Parse each comment and type
@@ -141,14 +126,21 @@ def parse_comment_sections(iframe_locator, context):
             for index in range(type_comment_elements.__len__()):
                 _type = type_comment_elements[index].inner_text()
                 comment_text = comment_text_elements[index].inner_text()
+                time_posted = ""
                 if _type.startswith("Posted"):
+                    time_posted = _type.split("d", 1)[1].strip()
                     _type = "Posted"
                 if _type.startswith("Replied to"):
+                    x = _type.split(" ")
+                    res = x[1].replace('\xa0', ' ')
+                    time_posted = f'{res.split("o", 1)[1]} {x[2]} {x[3]}'.strip()
                     _, rest_of_string = _type.split("o", 1)
                     _type = f"Replied to {rest_of_string}".split()
                     _type = " ".join(_type[:3])
-                comments.append({"comment_text": comment_text, "type": _type})
-                print(comment_text)
+
+                print(time_posted)
+                print(_type)
+                comments.append({"comment_text": comment_text, "type": _type, "last_posted": time_posted})
 
             comments_section.append({'source_article': source_article_data, "comments": comments})
 
@@ -332,7 +324,9 @@ def job():
         visited_users.clear()
 
 
-schedule.every().day.at("00:00").do(job)
-while True:
-    schedule.run_pending()
-    time.sleep(1)
+# schedule.every().day.at("00:00").do(job)
+# while True:
+#     schedule.run_pending()
+#     time.sleep(1)
+
+job()
