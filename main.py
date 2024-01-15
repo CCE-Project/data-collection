@@ -1,14 +1,17 @@
-import time
 import json
 from playwright.sync_api import sync_playwright
 from playwright.sync_api import TimeoutError
+from playwright.sync_api import Error
 from pymongo import MongoClient
+import re
+import schedule
+import time
 
 with open('./config.json', 'r') as f:
     config = json.load(f)
 
 uri = config['mongodb_connection_string']
-mongo_client = MongoClient(uri, serverSelectionTimeoutMS=60000, w=1)
+mongo_client = MongoClient(uri, w=1)
 db = mongo_client['NLP-Cross-Cutting-Exposure']
 
 visited_articles = set()
@@ -80,15 +83,30 @@ def get_general_user_info(iframe_locator):
     username_locator = 'bdi'
     post_num_locator = 'div[class*="src-components-Navbar-Navbar__Label"]'
     likes_rec_locator = 'div[class*="src-components-DetailText-DetailText__DetailText"][data-testid="text"]'
-    likes_rec = iframe_locator.locator(likes_rec_locator).text_content().split()[0]
-    username = iframe_locator.locator(username_locator).text_content()
-    nickname = iframe_locator.locator(nickname_locator).text_content()
-    post_num = iframe_locator.locator(post_num_locator).text_content()
+    likes_rec = iframe_locator.locator(likes_rec_locator)
+    likes_rec.wait_for(state="attached")
+    likes_rec = likes_rec.first.text_content().split()[0]
+
+    username = iframe_locator.locator(username_locator)
+    username.wait_for(state="attached")
+    username = username.first.text_content()
+    nickname = iframe_locator.locator(nickname_locator)
+    nickname.wait_for(state="attached")
+    nickname = nickname.first.text_content()
+    post_num_string = iframe_locator.locator(post_num_locator)
+    post_num_string.wait_for(state="attached")
+    post_num_string = post_num_string.first.inner_text()
+    match = re.search(r'\((.*?)\)', post_num_string)
+    post_num = ""
+    if match:
+        post_num = match.group(1)
+    else:
+        post_num = post_num_string
     return likes_rec, username, nickname, post_num
 
 
 # Get Comment Section data with source article and comments
-def parse_comment_sections(iframe_locator):
+def parse_comment_sections(iframe_locator, context):
     comment_section_locator = 'div[class*="src-components-FeedItem-styles__IndexWrapper"]'
     comment_section_elements = iframe_locator.locator(comment_section_locator).element_handles()
     comments_section = []
@@ -101,117 +119,141 @@ def parse_comment_sections(iframe_locator):
         source_article = comment_section.query_selector(source_article_locator).get_attribute('href')
 
         if "finance.yahoo.com" in source_article:
+            comment_section.dispose()
             continue
         source_article_page = context.new_page()
-        source_article_page.goto(source_article, timeout=3000, wait_until="domcontentloaded")
-        source_article_data = get_source_article_data(source_article_page)
-        source_article_page.close()
+        try:
+            source_article_page.goto(source_article, timeout=3000, wait_until="domcontentloaded")
+            source_article_data = get_source_article_data(source_article_page)
+            source_article_page.close()
+        except Exception as e:
+            print(e)
+            print("error in parsing comments section")
+            comment_section.dispose()
+            continue
 
         # Parse each comment and type
         comments = []
         type_comment_elements = comment_section.query_selector_all(type_comment_locator)
         comment_text_elements = comment_section.query_selector_all(comment_text_locator)
         comment_section.dispose()
-        for index in range(type_comment_elements.__len__()):
-            _type = type_comment_elements[index].inner_text()
-            comment_text = comment_text_elements[index].inner_text()
-            if _type.startswith("Posted"):
-                _type = "Posted"
-            if _type.startswith("Replied to"):
-                _, rest_of_string = _type.split("o", 1)
-                _type = f"Replied to {rest_of_string}".split()
-                _type = " ".join(_type[:3])
-            comments.append({"comment_text": comment_text, "type": _type})
-            print(comment_text)
+        if type_comment_elements.__len__() == comment_text_elements.__len__():
+            for index in range(type_comment_elements.__len__()):
+                _type = type_comment_elements[index].inner_text()
+                comment_text = comment_text_elements[index].inner_text()
+                if _type.startswith("Posted"):
+                    _type = "Posted"
+                if _type.startswith("Replied to"):
+                    _, rest_of_string = _type.split("o", 1)
+                    _type = f"Replied to {rest_of_string}".split()
+                    _type = " ".join(_type[:3])
+                comments.append({"comment_text": comment_text, "type": _type})
+                print(comment_text)
 
-        comments_section.append({'source_article': source_article_data, "comments": comments})
+            comments_section.append({'source_article': source_article_data, "comments": comments})
 
     return comments_section
 
 
+def close_user_profile(_iframe_locator, _page):
+    try:
+        close_profile_button = _iframe_locator.locator('button[title="Close the modal"]').element_handle()
+        close_profile_button.click()
+        close_profile_button.dispose()
+    except Exception as e:
+        print("failed to close profile")
+
+
 # Parse Users
-def parse_users(iframe_locator):
+def parse_users(iframe_locator, context, _page):
     users_objs = []
     profile_locator = 'button[data-spot-im-class="user-info-username"]'
     profile_buttons = iframe_locator.locator(profile_locator).element_handles()
     for profile_button in profile_buttons:
+        profile_button.wait_for_element_state("stable")
         profile_button.click()
         profile_button.dispose()
-        is_private = False
 
-        # Private profile check
-        private_profile_loc = 'div[class*="src-views-Profile-index__PrivateProfile"]'
+        # Get General User Info
+        user = dict()
+
         try:
-            private = iframe_locator.locator(private_profile_loc)
-            if private.inner_text().__contains__("private mode"):
-                is_private = True
-                print("its private")
-            else:
-                is_private = False
-        except Exception as e:
-            print("its not private")
-            is_private = False
-
-        if not is_private:
-            # Get General User Info
-            user = dict()
             user['likes'], user['username'], user['nickname'], user['post_num'] = get_general_user_info(iframe_locator)
+        except Error as e:
+            print("problem retrieving user data")
+            close_user_profile(iframe_locator, _page)
+            continue
 
-            if user['username'] not in visited_users:
+        if user['username'] not in visited_users:
 
-                # Load Read More Comments
-                read_more_locator = 'a[class*="src-components-FeedItem-styles__ShowMoreButton"]'
-                try:
+            # Load Read More Comments
+            read_more_locator = 'a[class*="src-components-FeedItem-styles__ShowMoreButton"]'
+            try:
+                read_more_buttons = iframe_locator.locator(read_more_locator).element_handles()
+                while read_more_buttons:
+                    for read_more in read_more_buttons:
+                        read_more.wait_for_element_state("stable")
+                        read_more.click()
+                        read_more.dispose()
                     read_more_buttons = iframe_locator.locator(read_more_locator).element_handles()
-                    while read_more_buttons:
-                        for read_more in read_more_buttons:
-                            read_more.click()
-                            read_more.dispose()
-                        read_more_buttons = iframe_locator.locator(read_more_locator).element_handles()
-                except TimeoutError as e:
-                    print(e)
+            except Error as e:
+                print("Read more not found")
 
-                # Parse comments under a single source article
-                user['comments_section'] = parse_comment_sections(iframe_locator)
-                users_objs.append(user)
-                visited_users.add(user['username'])
-        close_profile_button = iframe_locator.locator('button[title="Close the modal"]')
-        close_profile_button.click()
+            # Parse comments under a single source article
+            try:
+                user['comments_section'] = parse_comment_sections(iframe_locator, context)
+            except Exception as e:
+                print("problem with parsing comment section")
+                close_user_profile(iframe_locator, _page)
+                continue
+
+            users_objs.append(user)
+            visited_users.add(user['username'])
+        close_user_profile(iframe_locator, _page)
 
     return users_objs
 
 
-# Get user data
-def get_users_data(page):
-    # Activate comment section
+# Find and open comments button
+def open_comments_button(_page, retries=5):
     button_class = '.caas-button.view-cmts-cta.showCmtCount'
-    page.wait_for_selector(button_class)
-    button_element = page.locator(button_class)
-    button_element.click()
+    button_element = _page.locator(button_class)
+    button_element.wait_for(state="attached")
+    button_element.first.click()
 
-    iframe_locator = page.frame_locator('iframe[id^="jacSandbox_"]')
 
+# Get user data
+def get_users_data(_page, context):
+    # Activate comment section
+    try:
+        open_comments_button(_page)
+    except Exception as e:
+        print("Could not find comment section")
+        return []
+
+    iframe_locator = _page.frame_locator('iframe[id^="jacSandbox_"]')
+    _page.set_default_timeout(5000)
     # Load all comments
     load_comments_loc = ".spcv_load-more-messages"
-    page.set_default_timeout(5000)
     try:
         button = iframe_locator.locator(load_comments_loc)
         while button:
+            button.wait_for(state="attached")
             button.click()
-            button = iframe_locator.locator(load_comments_loc)
+            button = iframe_locator.locator(load_comments_loc).first
     except TimeoutError as e:
         print(e)
 
-    return parse_users(iframe_locator)
+    return parse_users(iframe_locator, context, _page)
 
 
 # Process each article by getting article and users data
-def process_article(page, link, retries=3):
+def process_article(_page, link, context, retries=3):
     for i in range(retries):
         try:
-            page.goto(link, timeout=3000, wait_until="domcontentloaded")
-            _article_data = get_article_data(page)
-            user_data = get_users_data(page)
+            _page.goto(link, timeout=3000, wait_until="domcontentloaded")
+            _article_data = get_article_data(_page)
+            user_data = get_users_data(_page, context)
             return _article_data, user_data
         except Exception as e:
             print(e)
@@ -219,63 +261,78 @@ def process_article(page, link, retries=3):
 
 # Write array to MongoDB
 def write_to_mongodb(_collection, _array, id_field):
-    ids = [item[id_field] for item in _array]
-    duplicate_docs = _collection.find({id_field: {'$in': ids}})
-    duplicate_urls = set(dupe_doc[id_field] for dupe_doc in duplicate_docs)
-    docs_to_insert = [item for item in _array if item[id_field] not in duplicate_urls]
-    if docs_to_insert:
-        _collection.insert_many(docs_to_insert)
+    try:
+        ids = [item[id_field] for item in _array]
+        duplicate_docs = _collection.find({id_field: {'$in': ids}})
+        duplicate_urls = set(dupe_doc[id_field] for dupe_doc in duplicate_docs)
+        docs_to_insert = [item for item in _array if item[id_field] not in duplicate_urls]
+        if docs_to_insert:
+            _collection.insert_many(docs_to_insert)
+    except Exception as e:
+        print(e)
 
 
-with sync_playwright() as p:
-    browser = p.chromium.launch(headless=False)
-    context = browser.new_context(ignore_https_errors=True)
-    articles = []
-    users = []
+# Run the job
+def job():
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=False)
+        context = browser.new_context(ignore_https_errors=True, user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/60.0.3112.50 Safari/537.36")
+        articles = []
+        users = []
 
-    # Parse through the articles on the scrolling page
-    # 'https://news.yahoo.com/tagged/donald-trump', 'https://news.yahoo.com/tagged/joe-biden'
-    for start_link in ['https://news.yahoo.com/politics/']:
-        try:
-            page = context.new_page()
-            page.goto(start_link, timeout=3000, wait_until="domcontentloaded")
+        # Parse through the articles on the scrolling page
+        # 'https://news.yahoo.com/tagged/donald-trump', 'https://news.yahoo.com/tagged/joe-biden'
+        for start_link in ['https://news.yahoo.com/politics/']:
+            try:
+                page = context.new_page()
+                page.goto(start_link, timeout=3000, wait_until="domcontentloaded")
 
-            # Scroll to the bottom
-            for i in range(10):
-                page.evaluate('window.scrollTo(0, document.body.scrollHeight);')
-                time.sleep(0.5)
+                # Scroll to the bottom
+                for i in range(10):
+                    page.evaluate('window.scrollTo(0, document.body.scrollHeight);')
+                    time.sleep(0.5)
 
-            # Parse through each article
-            stream_items = page.query_selector_all('.stream-item')
-            for stream_item in stream_items:
+                # Parse through each article
+                stream_items = page.query_selector_all('.stream-item')
+                for stream_item in stream_items:
+                    item_link = stream_item.query_selector('a').get_attribute('href')
 
-                category = json.loads(stream_item.get_attribute('data-i13n-cfg'))['categoryLabel']
-                item_link = stream_item.query_selector('a').get_attribute('href')
+                    if 'news.yahoo.com' not in item_link:
+                        item_link = 'https://news.yahoo.com' + item_link
+                    if item_link not in visited_articles and item_link.__contains__('.html'):
+                        visited_articles.add(item_link)
+                        current_page = context.new_page()
+                        article_data, users_data = process_article(current_page, item_link, context)
 
-                if 'news.yahoo.com' not in item_link:
-                    item_link = 'https://news.yahoo.com' + item_link
-                if item_link not in visited_articles and item_link.__contains__('.html'):
-                    visited_articles.add(item_link)
-                    current_page = context.new_page()
-                    article_data, users_data = process_article(current_page, item_link)
+                        category = json.loads(stream_item.get_attribute('data-i13n-cfg'))['categoryLabel']
+                        article_data['category'] = category
 
-                    article_data['category'] = category
+                        if article_data is not None:
+                            articles.append(article_data)
+                        if users_data is not None:
+                            users.extend(users_data)
 
-                    articles.append(article_data)
-                    users.extend(users_data)
+                        current_page.close()
+            except Exception as e:
+                print(e)
 
-                    current_page.close()
-        except Exception as e:
-            print(e)
+        # Close resources
+        context.close()
+        browser.close()
 
-    # Close resources
-    context.close()
-    browser.close()
+        # Write to MongoDB
+        collection_articles = db['Articles']
+        collection_users = db['Users']
+        if articles.__len__() > 0:
+            write_to_mongodb(collection_articles, articles, "url")
+        if users.__len__() > 0:
+            write_to_mongodb(collection_users, users, "username")
 
-    # Write to MongoDB
-    collection_articles = db['Articles']
-    collection_users = db['Users']
-    write_to_mongodb(collection_articles, articles, "url")
-    write_to_mongodb(collection_users, users, "username")
+        visited_articles.clear()
+        visited_users.clear()
 
 
+schedule.every().day.at("00:00").do(job)
+while True:
+    schedule.run_pending()
+    time.sleep(1)
