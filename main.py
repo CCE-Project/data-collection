@@ -6,12 +6,13 @@ from pymongo import MongoClient
 import re
 import schedule
 import time
+import certifi
 
 with open('./config.json', 'r') as f:
     config = json.load(f)
 
 uri = config['mongodb_connection_string']
-mongo_client = MongoClient(uri, w=1)
+mongo_client = MongoClient(uri, w=1, tlsCAFile=certifi.where())
 db = mongo_client['NLP-Cross-Cutting-Exposure']
 
 visited_articles = set()
@@ -231,13 +232,13 @@ def parse_users(iframe_locator, context, _page):
                         read_more.dispose()
                     read_more_buttons = iframe_locator.locator(read_more_locator).element_handles()
             except Error as e:
-                print("Read more not found")
+                print("Finished loading all sections")
 
             # Parse comments under a single source article
             try:
                 user['comments_section'] = parse_comment_sections(iframe_locator, context, _page)
             except Exception as e:
-                print("problem with parsing comment section")
+                print("parsing comment section finished")
                 close_user_profile(iframe_locator, _page)
                 continue
 
@@ -367,8 +368,9 @@ def job():
         visited_users.clear()
 
 
-schedule.every().day.at("00:00").do(job)
-while True:
-    schedule.run_pending()
-    time.sleep(1)
+# schedule.every().day.at("00:00").do(job)
+# while True:
+#     schedule.run_pending()
+#     time.sleep(1)
 
+job()
