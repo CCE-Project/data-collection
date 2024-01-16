@@ -7,6 +7,7 @@ import re
 import schedule
 import time
 import certifi
+import csv
 
 with open('./config.json', 'r') as f:
     config = json.load(f)
@@ -43,6 +44,8 @@ def get_article_data(page):
 
     news_outlet_link = data.get('provider').get('url')
     news_outlet_name = data.get('provider').get('name')
+
+    print(og_title)
 
     return {
         "url": og_url,
@@ -155,7 +158,7 @@ def parse_comment_sections(iframe_locator, context, _page):
             source_article_page.close()
         except Exception as e:
             print(e)
-            print("error in parsing comments section")
+            print("Finished parsing comments section")
             comment_section.dispose()
             source_article_page.close()
             continue
@@ -181,8 +184,7 @@ def parse_comment_sections(iframe_locator, context, _page):
                     _type = f"Replied to {rest_of_string}".split()
                     _type = " ".join(_type[:3])
 
-                print(time_posted)
-                print(_type)
+                print(comment_text)
                 comments.append({"comment_text": comment_text, "type": _type, "last_posted": time_posted})
 
             comments_section.append({'source_article': source_article_data, "comments": comments})
@@ -196,7 +198,7 @@ def close_user_profile(_iframe_locator, _page):
         close_profile_button.click()
         close_profile_button.dispose()
     except Exception as e:
-        print("failed to close profile")
+        print("Failed to close profile")
 
 
 # Parse Users
@@ -215,7 +217,7 @@ def parse_users(iframe_locator, context, _page):
         try:
             user['likes'], user['username'], user['nickname'], user['post_num'] = get_general_user_info(iframe_locator)
         except Error as e:
-            print("problem retrieving user data")
+            print("Private profile skipping to next")
             close_user_profile(iframe_locator, _page)
             continue
 
@@ -264,7 +266,7 @@ def get_users_data(_page, context):
     try:
         open_comments_button(_page)
     except Exception as e:
-        print("Could not find comment section")
+        print("Could not find comment section skipping to next article")
         return []
 
     iframe_locator = _page.frame_locator('iframe[id^="jacSandbox_"]')
@@ -360,9 +362,27 @@ def job():
         collection_articles = db['Articles']
         collection_users = db['Users']
         if articles.__len__() > 0:
-            write_to_mongodb(collection_articles, articles, "url")
+            # TODO: Fix Database issues
+            # write_to_mongodb(collection_articles, articles, "url")
+            with open("articles.csv", 'a', newline='', encoding='utf-8') as csvfile:
+                fieldnames = articles[0].keys()
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+
+                if csvfile.tell() == 0:
+                    writer.writeheader()
+                for data in articles:
+                    writer.writerow(data)
+
         if users.__len__() > 0:
-            write_to_mongodb(collection_users, users, "username")
+            # write_to_mongodb(collection_users, users, "username")
+            with open("users.json", "a") as file:
+                file.seek(0, 2)
+
+                if file.tell() > 0:
+                    file.write(",")
+
+                json.dump(users, file, indent=4)
+                file.write("\n")
 
         visited_articles.clear()
         visited_users.clear()
