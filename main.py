@@ -89,6 +89,7 @@ def get_general_user_info(iframe_locator):
     return likes_rec, username, nickname, post_num
 
 
+# Scroll down to load more comments
 def generate_more_comments(iframe_locator, _page):
     generated_enough = False
     last_comment_section_number = 0
@@ -366,9 +367,8 @@ def job():
         visited_users.clear()
 
 
-# schedule.every().day.at("00:00").do(job)
-# while True:
-#     schedule.run_pending()
-#     time.sleep(1)
+schedule.every().day.at("00:00").do(job)
+while True:
+    schedule.run_pending()
+    time.sleep(1)
 
-job()
