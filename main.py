@@ -89,8 +89,49 @@ def get_general_user_info(iframe_locator):
     return likes_rec, username, nickname, post_num
 
 
+def generate_more_comments(iframe_locator, _page):
+    generated_enough = False
+    last_comment_section_number = 0
+    i = 0
+    while not generated_enough:
+        comment_section_locator = 'div[class*="src-components-FeedItem-styles__IndexWrapper"]'
+        type_comment_locator = 'a[class*="src-components-FeedItem-styles__MessageLink"]'
+
+        comment_section_elements = iframe_locator.locator(comment_section_locator).element_handles()
+        last_comment_section = comment_section_elements[comment_section_elements.__len__() - 1]
+        type_comment_elements = last_comment_section.query_selector_all(type_comment_locator)
+        _type = type_comment_elements[type_comment_elements.__len__() - 1].inner_text()
+
+        time_posted = ""
+        if _type.startswith("Posted"):
+            time_posted = _type.split("d", 1)[1].strip()
+        if _type.startswith("Replied to"):
+            x = _type.split(" ")
+            res = x[1].replace('\xa0', ' ')
+            time_posted = f'{res.split("o", 1)[1]} {x[2]} {x[3]}'.strip()
+
+        if "2y ago" in time_posted:
+            generated_enough = True
+        elif comment_section_elements.__len__() == last_comment_section_number:
+            generated_enough = True
+        else:
+            i += 1
+            last_comment_section_number = comment_section_elements.__len__()
+            for comment_section in comment_section_elements:
+                comment_section.dispose()
+            _page.mouse.wheel(0, 50000)
+            time.sleep(1)
+
+    _page.mouse.wheel(50000 * i, 0)
+
+
 # Get Comment Section data with source article and comments
-def parse_comment_sections(iframe_locator, context):
+def parse_comment_sections(iframe_locator, context, _page):
+    try:
+        generate_more_comments(iframe_locator, _page)
+    except Exception as e:
+        print(e)
+
     comment_section_locator = 'div[class*="src-components-FeedItem-styles__IndexWrapper"]'
     comment_section_elements = iframe_locator.locator(comment_section_locator).element_handles()
     comments_section = []
@@ -193,7 +234,7 @@ def parse_users(iframe_locator, context, _page):
 
             # Parse comments under a single source article
             try:
-                user['comments_section'] = parse_comment_sections(iframe_locator, context)
+                user['comments_section'] = parse_comment_sections(iframe_locator, context, _page)
             except Exception as e:
                 print("problem with parsing comment section")
                 close_user_profile(iframe_locator, _page)
@@ -210,6 +251,7 @@ def parse_users(iframe_locator, context, _page):
 def open_comments_button(_page, retries=5):
     button_class = '.caas-button.view-cmts-cta.showCmtCount'
     button_element = _page.locator(button_class)
+    button_element.scroll_into_view_if_needed()
     button_element.wait_for(state="attached")
     button_element.first.click()
 
@@ -324,7 +366,9 @@ def job():
         visited_users.clear()
 
 
-schedule.every().day.at("00:00").do(job)
-while True:
-    schedule.run_pending()
-    time.sleep(1)
+# schedule.every().day.at("00:00").do(job)
+# while True:
+#     schedule.run_pending()
+#     time.sleep(1)
+
+job()
