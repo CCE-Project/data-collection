@@ -381,7 +381,7 @@ def job():
         visited_users.clear()
 
 
-schedule.every().day.at("15:35").do(job)
+schedule.every().day.at("15:40").do(job)
 while True:
     schedule.run_pending()
     time.sleep(1)
