@@ -96,36 +96,19 @@ def get_general_user_info(iframe_locator):
 # Scroll down to load more comments
 def generate_more_comments(iframe_locator, _page):
     generated_enough = False
-    last_comment_section_number = 0
     i = 0
     while not generated_enough:
         comment_section_locator = 'div[class*="src-components-FeedItem-styles__IndexWrapper"]'
-        type_comment_locator = 'a[class*="src-components-FeedItem-styles__MessageLink"]'
-
         comment_section_elements = iframe_locator.locator(comment_section_locator).element_handles()
-        last_comment_section = comment_section_elements[comment_section_elements.__len__() - 1]
-        type_comment_elements = last_comment_section.query_selector_all(type_comment_locator)
-        _type = type_comment_elements[type_comment_elements.__len__() - 1].inner_text()
 
-        time_posted = ""
-        if _type.startswith("Posted"):
-            time_posted = _type.split("d", 1)[1].strip()
-        if _type.startswith("Replied to"):
-            x = _type.split(" ")
-            res = x[1].replace('\xa0', ' ')
-            time_posted = f'{res.split("o", 1)[1]} {x[2]} {x[3]}'.strip()
-
-        if "2y ago" in time_posted:
-            generated_enough = True
-        elif comment_section_elements.__len__() == last_comment_section_number:
+        if comment_section_elements.__len__() == 300:
             generated_enough = True
         else:
             i += 1
-            last_comment_section_number = comment_section_elements.__len__()
             for comment_section in comment_section_elements:
                 comment_section.dispose()
             _page.mouse.wheel(0, 50000)
-            time.sleep(1)
+            time.sleep(0.5)
 
     _page.mouse.wheel(50000 * i, 0)
 
@@ -207,46 +190,55 @@ def parse_users(iframe_locator, context, _page):
     profile_locator = 'button[data-spot-im-class="user-info-username"]'
     profile_buttons = iframe_locator.locator(profile_locator).element_handles()
     for profile_button in profile_buttons:
-        profile_button.wait_for_element_state("stable")
-        profile_button.click()
-        profile_button.dispose()
-
-        # Get General User Info
-        user = dict()
-
-        try:
-            user['likes'], user['username'], user['nickname'], user['post_num'] = get_general_user_info(iframe_locator)
-        except Error as e:
-            print("Private profile skipping to next")
-            close_user_profile(iframe_locator, _page)
-            continue
-
-        if user['username'] not in visited_users:
-
-            # Load Read More Comments
-            read_more_locator = 'a[class*="src-components-FeedItem-styles__ShowMoreButton"]'
+        finished_user = False
+        retries = 3
+        while not finished_user and retries > 0:
             try:
-                read_more_buttons = iframe_locator.locator(read_more_locator).element_handles()
-                while read_more_buttons:
-                    for read_more in read_more_buttons:
-                        read_more.wait_for_element_state("stable")
-                        read_more.click()
-                        read_more.dispose()
-                    read_more_buttons = iframe_locator.locator(read_more_locator).element_handles()
-            except Error as e:
-                print("Finished loading all sections")
+                profile_button.wait_for_element_state("stable")
+                profile_button.click()
+                profile_button.dispose()
 
-            # Parse comments under a single source article
-            try:
-                user['comments_section'] = parse_comment_sections(iframe_locator, context, _page)
-            except Exception as e:
-                print("parsing comment section finished")
+                # Get General User Info
+                user = dict()
+
+                try:
+                    user['likes'], user['username'], user['nickname'], user['post_num'] = get_general_user_info(
+                        iframe_locator)
+                except Error as e:
+                    print("Private profile skipping to next")
+                    close_user_profile(iframe_locator, _page)
+                    continue
+
+                if user['username'] not in visited_users:
+
+                    # Load Read More Comments
+                    read_more_locator = 'a[class*="src-components-FeedItem-styles__ShowMoreButton"]'
+                    try:
+                        read_more_buttons = iframe_locator.locator(read_more_locator).element_handles()
+                        while read_more_buttons:
+                            for read_more in read_more_buttons:
+                                read_more.wait_for_element_state("stable")
+                                read_more.click()
+                                read_more.dispose()
+                            read_more_buttons = iframe_locator.locator(read_more_locator).element_handles()
+                    except Error as e:
+                        print("Finished loading all sections")
+
+                    # Parse comments under a single source article
+                    try:
+                        user['comments_section'] = parse_comment_sections(iframe_locator, context, _page)
+                    except Exception as e:
+                        print("parsing comment section finished")
+                        close_user_profile(iframe_locator, _page)
+                        continue
+
+                    users_objs.append(user)
+                    visited_users.add(user['username'])
                 close_user_profile(iframe_locator, _page)
-                continue
-
-            users_objs.append(user)
-            visited_users.add(user['username'])
-        close_user_profile(iframe_locator, _page)
+                finished_user = True
+            except Exception as e:
+                print(e)
+                retries -= 1
 
     return users_objs
 
@@ -314,7 +306,8 @@ def write_to_mongodb(_collection, _array, id_field):
 def job():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=False)
-        context = browser.new_context(ignore_https_errors=True, user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/60.0.3112.50 Safari/537.36")
+        context = browser.new_context(ignore_https_errors=True,
+                                      user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/60.0.3112.50 Safari/537.36")
         articles = []
         users = []
 
@@ -361,35 +354,34 @@ def job():
         # Write to MongoDB
         collection_articles = db['Articles']
         collection_users = db['Users']
-        if articles.__len__() > 0:
-            # TODO: Fix Database issues
-            # write_to_mongodb(collection_articles, articles, "url")
-            with open("articles.csv", 'a', newline='', encoding='utf-8') as csvfile:
-                fieldnames = articles[0].keys()
-                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
 
-                if csvfile.tell() == 0:
-                    writer.writeheader()
-                for data in articles:
-                    writer.writerow(data)
+        # TODO: Fix Database issues
+        # write_to_mongodb(collection_articles, articles, "url")
+        with open("articles.csv", 'a', newline='', encoding='utf-8') as csvfile:
+            fieldnames = articles[0].keys()
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
 
-        if users.__len__() > 0:
-            # write_to_mongodb(collection_users, users, "username")
-            with open("users.json", "a") as file:
-                file.seek(0, 2)
+            if csvfile.tell() == 0:
+                writer.writeheader()
+            for data in articles:
+                writer.writerow(data)
 
-                if file.tell() > 0:
-                    file.write(",")
+        # TODO: Fix Database issues
+        # write_to_mongodb(collection_users, users, "username")
+        with open("users.json", "a") as file:
+            file.seek(0, 2)
 
-                json.dump(users, file, indent=4)
-                file.write("\n")
+            if file.tell() > 0:
+                file.write(",")
+
+            json.dump(users, file, indent=4)
+            file.write("\n")
 
         visited_articles.clear()
         visited_users.clear()
 
 
-schedule.every().day.at("00:00").do(job)
+schedule.every().day.at("15:35").do(job)
 while True:
     schedule.run_pending()
     time.sleep(1)
-
