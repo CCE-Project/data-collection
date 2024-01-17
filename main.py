@@ -136,7 +136,7 @@ def parse_comment_sections(iframe_locator, context, _page):
             continue
         source_article_page = context.new_page()
         try:
-            source_article_page.goto(source_article, timeout=3000, wait_until="domcontentloaded")
+            source_article_page.goto(source_article, timeout=30000, wait_until="domcontentloaded")
             source_article_data = get_article_data(source_article_page)
             source_article_page.close()
         except Exception as e:
@@ -281,7 +281,7 @@ def get_users_data(_page, context):
 def process_article(_page, link, context, retries=3):
     for i in range(retries):
         try:
-            _page.goto(link, timeout=3000, wait_until="domcontentloaded")
+            _page.goto(link, timeout=30000, wait_until="domcontentloaded")
             _article_data = get_article_data(_page)
             user_data = get_users_data(_page, context)
             return _article_data, user_data
@@ -316,7 +316,7 @@ def job():
         for start_link in ['https://news.yahoo.com/politics/']:
             try:
                 page = context.new_page()
-                page.goto(start_link, timeout=3000, wait_until="domcontentloaded")
+                page.goto(start_link, timeout=30000, wait_until="domcontentloaded")
 
                 # Scroll to the bottom
                 for i in range(10):
