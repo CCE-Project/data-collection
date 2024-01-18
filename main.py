@@ -95,6 +95,7 @@ def get_general_user_info(iframe_locator):
 
 # Scroll down to load more comments
 def generate_more_comments(iframe_locator, _page):
+    print("Scrolling down to load more comments from user")
     generated_enough = False
     i = 0
     last_number_comments = 0
@@ -108,10 +109,10 @@ def generate_more_comments(iframe_locator, _page):
             generated_enough = True
         else:
             i += 1
-            last_number_comments = comment_section_elements.__len__()
             for comment_section in comment_section_elements:
                 comment_section.dispose()
             _page.mouse.wheel(0, 50000)
+            last_number_comments = comment_section_elements.__len__()
             time.sleep(1)
 
     _page.mouse.wheel(50000 * i, 0)
@@ -121,6 +122,7 @@ def generate_more_comments(iframe_locator, _page):
 def parse_comment_sections(iframe_locator, context, _page):
     try:
         generate_more_comments(iframe_locator, _page)
+        print("Finished scrolling for more comments on profile")
     except Exception as e:
         print(e)
 
@@ -181,11 +183,14 @@ def parse_comment_sections(iframe_locator, context, _page):
 
 def close_user_profile(_iframe_locator, _page):
     try:
-        close_profile_button = _iframe_locator.locator('button[title="Close the modal"]').element_handle()
+        close_profile_button = _iframe_locator.locator('button[title="Close the modal"]')
+        close_profile_button.scroll_into_view_if_needed()
+        close_profile_button.wait_for(state="attached")
         close_profile_button.click()
-        close_profile_button.dispose()
+        return True
     except Exception as e:
-        print("Failed to close profile")
+        print(f"Failed to close profile")
+        return False
 
 
 # Parse Users
@@ -194,55 +199,59 @@ def parse_users(iframe_locator, context, _page):
     profile_locator = 'button[data-spot-im-class="user-info-username"]'
     profile_buttons = iframe_locator.locator(profile_locator).element_handles()
     for profile_button in profile_buttons:
-        finished_user = False
-        retries = 3
-        while not finished_user and retries > 0:
+        try:
+            profile_button.wait_for_element_state("stable")
+            profile_button.click()
+
+            # Get General User Info
+            user = dict()
+
             try:
-                profile_button.wait_for_element_state("stable")
-                profile_button.click()
+                user['likes'], user['username'], user['nickname'], user['post_num'] = get_general_user_info(
+                    iframe_locator)
+            except Error as e:
+                print("Private profile skipping to next")
                 profile_button.dispose()
-
-                # Get General User Info
-                user = dict()
-
-                try:
-                    user['likes'], user['username'], user['nickname'], user['post_num'] = get_general_user_info(
-                        iframe_locator)
-                except Error as e:
-                    print("Private profile skipping to next")
-                    close_user_profile(iframe_locator, _page)
+                if close_user_profile(iframe_locator, _page):
                     continue
+                else:
+                    return users_objs
 
-                if user['username'] not in visited_users:
+            if user['username'] not in visited_users:
 
-                    # Load Read More Comments
-                    read_more_locator = 'a[class*="src-components-FeedItem-styles__ShowMoreButton"]'
-                    try:
+                # Load Read More Comments
+                read_more_locator = 'a[class*="src-components-FeedItem-styles__ShowMoreButton"]'
+                try:
+                    read_more_buttons = iframe_locator.locator(read_more_locator).element_handles()
+                    while read_more_buttons:
+                        for read_more in read_more_buttons:
+                            read_more.wait_for_element_state("stable")
+                            read_more.click()
+                            read_more.dispose()
                         read_more_buttons = iframe_locator.locator(read_more_locator).element_handles()
-                        while read_more_buttons:
-                            for read_more in read_more_buttons:
-                                read_more.wait_for_element_state("stable")
-                                read_more.click()
-                                read_more.dispose()
-                            read_more_buttons = iframe_locator.locator(read_more_locator).element_handles()
-                    except Error as e:
-                        print("Finished loading all sections")
+                except Error as e:
+                    print("Finished loading all sections")
 
-                    # Parse comments under a single source article
-                    try:
-                        user['comments_section'] = parse_comment_sections(iframe_locator, context, _page)
-                    except Exception as e:
-                        print("parsing comment section finished")
-                        close_user_profile(iframe_locator, _page)
+                # Parse comments under a single source article
+                try:
+                    user['comments_section'] = parse_comment_sections(iframe_locator, context, _page)
+                except Exception as e:
+                    print("parsing comment section finished")
+                    profile_button.dispose()
+                    if close_user_profile(iframe_locator, _page):
                         continue
+                    else:
+                        return users_objs
 
-                    users_objs.append(user)
-                    visited_users.add(user['username'])
-                close_user_profile(iframe_locator, _page)
-                finished_user = True
-            except Exception as e:
-                print(e)
-                retries -= 1
+                users_objs.append(user)
+                visited_users.add(user['username'])
+            profile_button.dispose()
+            if close_user_profile(iframe_locator, _page):
+                continue
+            else:
+                return users_objs
+        except Exception as e:
+            print(e)
 
     return users_objs
 
@@ -269,6 +278,7 @@ def get_users_data(_page, context):
     _page.set_default_timeout(5000)
     # Load all comments
     load_comments_loc = ".spcv_load-more-messages"
+    print("Loading more users")
     try:
         button = iframe_locator.locator(load_comments_loc)
         while button:
@@ -276,7 +286,7 @@ def get_users_data(_page, context):
             button.click()
             button = iframe_locator.locator(load_comments_loc).first
     except TimeoutError as e:
-        print(e)
+        print("Finished loading more users from comment section")
 
     return parse_users(iframe_locator, context, _page)
 
@@ -309,7 +319,7 @@ def write_to_mongodb(_collection, _array, id_field):
 # Run the job
 def job():
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False)
+        browser = p.chromium.launch(headless=True)
         context = browser.new_context(ignore_https_errors=True,
                                       user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/60.0.3112.50 Safari/537.36")
         articles = []
@@ -345,6 +355,7 @@ def job():
                     if item_link not in visited_articles and item_link.__contains__('.html'):
                         visited_articles.add(item_link)
                         current_page = context.new_page()
+                        current_page.set_viewport_size({ "width": 1600, "height": 1200})
                         article_data, users_data = process_article(current_page, item_link, context)
 
                         category = json.loads(stream_item.get_attribute('data-i13n-cfg'))['categoryLabel']
@@ -368,32 +379,36 @@ def job():
         collection_users = db['Users']
 
         # TODO: Fix Database issues
-        # write_to_mongodb(collection_articles, articles, "url")
-        with open("articles.csv", 'a', newline='', encoding='utf-8') as csvfile:
-            fieldnames = articles[0].keys()
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        if articles.__len__() > 0:
+            # write_to_mongodb(collection_articles, articles, "url")
+            with open("articles.csv", 'a', newline='', encoding='utf-8') as csvfile:
+                fieldnames = articles[0].keys()
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
 
-            if csvfile.tell() == 0:
-                writer.writeheader()
-            for data in articles:
-                writer.writerow(data)
+                if csvfile.tell() == 0:
+                    writer.writeheader()
+                for data in articles:
+                    writer.writerow(data)
 
         # TODO: Fix Database issues
-        # write_to_mongodb(collection_users, users, "username")
-        with open("users.json", "a") as file:
-            file.seek(0, 2)
+        if users.__len__() > 0:
+            # write_to_mongodb(collection_users, users, "username")
+            with open("users.json", "a") as file:
+                file.seek(0, 2)
 
-            if file.tell() > 0:
-                file.write(",")
+                if file.tell() > 0:
+                    file.write(",")
 
-            json.dump(users, file, indent=4)
-            file.write("\n")
+                json.dump(users, file, indent=4)
+                file.write("\n")
 
+        users.clear()
+        articles.clear()
         visited_articles.clear()
         visited_users.clear()
 
 
-schedule.every().day.at("15:40").do(job)
+schedule.every().day.at("12:20").do(job)
 while True:
     schedule.run_pending()
     time.sleep(1)
