@@ -97,18 +97,22 @@ def get_general_user_info(iframe_locator):
 def generate_more_comments(iframe_locator, _page):
     generated_enough = False
     i = 0
+    last_number_comments = 0
     while not generated_enough:
         comment_section_locator = 'div[class*="src-components-FeedItem-styles__IndexWrapper"]'
         comment_section_elements = iframe_locator.locator(comment_section_locator).element_handles()
 
         if comment_section_elements.__len__() == 300:
             generated_enough = True
+        elif last_number_comments == comment_section_elements.__len__():
+            generated_enough = True
         else:
             i += 1
+            last_number_comments = comment_section_elements.__len__()
             for comment_section in comment_section_elements:
                 comment_section.dispose()
             _page.mouse.wheel(0, 50000)
-            time.sleep(0.5)
+            time.sleep(1)
 
     _page.mouse.wheel(50000 * i, 0)
 
@@ -316,7 +320,15 @@ def job():
         for start_link in ['https://news.yahoo.com/politics/']:
             try:
                 page = context.new_page()
-                page.goto(start_link, timeout=30000, wait_until="domcontentloaded")
+
+                retries = 3
+                while retries > 0:
+                    try:
+                        page.goto(start_link, timeout=30000, wait_until="domcontentloaded")
+                        retries = 0
+                    except Exception as e:
+                        print(e)
+                        retries -= 1
 
                 # Scroll to the bottom
                 for i in range(10):
