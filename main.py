@@ -44,8 +44,12 @@ def get_article_data(page):
     news_outlet_link = data.get('provider').get('url')
     news_outlet_name = data.get('provider').get('name')
 
-    print(og_title)
+    script_content = page.locator('//*[@id="atomic"]/body/script[4]')
+    script_content.wait_for(state="attached")
+    page.evaluate(script_content.text_content())
+    category_label = page.evaluate('() => window.YAHOO.context.meta.categoryLabel')
 
+    print(og_title)
     return {
         "url": og_url,
         "keywords": news_keywords,
@@ -59,7 +63,8 @@ def get_article_data(page):
         "authors": authors,
         "num_comments": num_comments,
         "outlet_link": news_outlet_link,
-        "outlet_name": news_outlet_name
+        "outlet_name": news_outlet_name,
+        "category": category_label
     }
 
 
@@ -277,6 +282,7 @@ def open_comments_button(_page, retries=5):
 
 # Get user data
 def get_users_data(_page, browser):
+    _page.set_default_timeout(5000)
     # Activate comment section
     try:
         open_comments_button(_page)
@@ -285,7 +291,6 @@ def get_users_data(_page, browser):
         return []
 
     iframe_locator = _page.frame_locator('iframe[id^="jacSandbox_"]')
-    _page.set_default_timeout(5000)
     # Load all comments
     load_comments_loc = ".spcv_load-more-messages"
     print("Loading more users")
@@ -380,9 +385,6 @@ def job():
                         current_page.set_viewport_size({"width": 1600, "height": 1200})
                         article_data, users_data = process_article(current_page, item_link, browser)
 
-                        category = json.loads(stream_item.get_attribute('data-i13n-cfg'))['categoryLabel']
-                        article_data['category'] = category
-
                         if article_data is not None:
                             articles.append(article_data)
                         if users_data is not None:
@@ -416,3 +418,4 @@ schedule.every().day.at("12:00").do(job)
 while True:
     schedule.run_pending()
     time.sleep(1)
+
