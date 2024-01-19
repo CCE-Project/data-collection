@@ -22,7 +22,6 @@ visited_users = set()
 
 # Get article data for whole page
 def get_article_data(page):
-    page.set_default_timeout(5000)
     json_selector = 'script[type="application/ld+json"]'
     json_content = page.inner_text(json_selector)
     data = json.loads(json_content)
@@ -103,7 +102,7 @@ def generate_more_comments(iframe_locator, _page):
         comment_section_locator = 'div[class*="src-components-FeedItem-styles__IndexWrapper"]'
         comment_section_elements = iframe_locator.locator(comment_section_locator).element_handles()
 
-        if comment_section_elements.__len__() == 300:
+        if comment_section_elements.__len__() == 10:
             generated_enough = True
         elif last_number_comments == comment_section_elements.__len__():
             generated_enough = True
@@ -119,7 +118,7 @@ def generate_more_comments(iframe_locator, _page):
 
 
 # Get Comment Section data with source article and comments
-def parse_comment_sections(iframe_locator, context, _page):
+def parse_comment_sections(iframe_locator, _page, browser):
     try:
         generate_more_comments(iframe_locator, _page)
         print("Finished scrolling for more comments on profile")
@@ -140,7 +139,13 @@ def parse_comment_sections(iframe_locator, context, _page):
         if "news.yahoo.com" not in source_article:
             comment_section.dispose()
             continue
-        source_article_page = context.new_page()
+        source_article_page = browser.new_page(ignore_https_errors=True,
+                                               user_agent="Mozilla/5.0 (Macintosh; U; Intel Mac OS X 10_10_3; en-US) "
+                                                          "Gecko/20100101 Firefox/55.8",
+                                               bypass_csp=True,
+                                               java_script_enabled=True,
+                                               service_workers="block",
+                                               reduced_motion="reduce")
         try:
             source_article_page.goto(source_article, timeout=30000, wait_until="domcontentloaded")
             source_article_data = get_article_data(source_article_page)
@@ -194,7 +199,7 @@ def close_user_profile(_iframe_locator, _page):
 
 
 # Parse Users
-def parse_users(iframe_locator, context, _page):
+def parse_users(iframe_locator, _page, browser):
     users_objs = []
     profile_locator = 'button[data-spot-im-class="user-info-username"]'
     profile_buttons = iframe_locator.locator(profile_locator).element_handles()
@@ -234,7 +239,7 @@ def parse_users(iframe_locator, context, _page):
 
                 # Parse comments under a single source article
                 try:
-                    user['comments_section'] = parse_comment_sections(iframe_locator, context, _page)
+                    user['comments_section'] = parse_comment_sections(iframe_locator, _page, browser)
                 except Exception as e:
                     print("parsing comment section finished")
                     profile_button.dispose()
@@ -266,7 +271,7 @@ def open_comments_button(_page, retries=5):
 
 
 # Get user data
-def get_users_data(_page, context):
+def get_users_data(_page, browser):
     # Activate comment section
     try:
         open_comments_button(_page)
@@ -275,7 +280,7 @@ def get_users_data(_page, context):
         return []
 
     iframe_locator = _page.frame_locator('iframe[id^="jacSandbox_"]')
-    _page.set_default_timeout(5000)
+    _page.set_default_timeout(3000)
     # Load all comments
     load_comments_loc = ".spcv_load-more-messages"
     print("Loading more users")
@@ -288,16 +293,16 @@ def get_users_data(_page, context):
     except TimeoutError as e:
         print("Finished loading more users from comment section")
 
-    return parse_users(iframe_locator, context, _page)
+    return parse_users(iframe_locator, _page, browser)
 
 
 # Process each article by getting article and users data
-def process_article(_page, link, context, retries=3):
+def process_article(_page, link, browser, retries=3):
     for i in range(retries):
         try:
             _page.goto(link, timeout=30000, wait_until="domcontentloaded")
             _article_data = get_article_data(_page)
-            user_data = get_users_data(_page, context)
+            user_data = get_users_data(_page, browser)
             return _article_data, user_data
         except Exception as e:
             print(e)
@@ -319,9 +324,8 @@ def write_to_mongodb(_collection, _array, id_field):
 # Run the job
 def job():
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        context = browser.new_context(ignore_https_errors=True,
-                                      user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/60.0.3112.50 Safari/537.36")
+        browser = p.chromium.launch(headless=False)
+
         articles = []
         users = []
 
@@ -329,12 +333,18 @@ def job():
         # 'https://news.yahoo.com/tagged/donald-trump', 'https://news.yahoo.com/tagged/joe-biden'
         for start_link in ['https://news.yahoo.com/politics/']:
             try:
-                page = context.new_page()
+                start_page = browser.new_page(ignore_https_errors=True,
+                                              user_agent="Mozilla/5.0 (Macintosh; U; Intel Mac OS X 10_10_3; en-US) "
+                                                         "Gecko/20100101 Firefox/55.8",
+                                              bypass_csp=True,
+                                              java_script_enabled=True,
+                                              service_workers="block",
+                                              reduced_motion="reduce")
 
                 retries = 3
                 while retries > 0:
                     try:
-                        page.goto(start_link, timeout=30000, wait_until="domcontentloaded")
+                        start_page.goto(start_link, timeout=30000, wait_until="domcontentloaded")
                         retries = 0
                     except Exception as e:
                         print(e)
@@ -342,11 +352,11 @@ def job():
 
                 # Scroll to the bottom
                 for i in range(10):
-                    page.evaluate('window.scrollTo(0, document.body.scrollHeight);')
+                    start_page.evaluate('window.scrollTo(0, document.body.scrollHeight);')
                     time.sleep(0.5)
 
                 # Parse through each article
-                stream_items = page.query_selector_all('.stream-item')
+                stream_items = start_page.query_selector_all('.stream-item')
                 for stream_item in stream_items:
                     item_link = stream_item.query_selector('a').get_attribute('href')
 
@@ -354,9 +364,15 @@ def job():
                         item_link = 'https://news.yahoo.com' + item_link
                     if item_link not in visited_articles and item_link.__contains__('.html'):
                         visited_articles.add(item_link)
-                        current_page = context.new_page()
-                        current_page.set_viewport_size({ "width": 1600, "height": 1200})
-                        article_data, users_data = process_article(current_page, item_link, context)
+                        current_page = browser.new_page(ignore_https_errors=True,
+                                                        user_agent="Mozilla/5.0 (Macintosh; U; Intel Mac OS X 10_10_3; en-US) "
+                                                                   "Gecko/20100101 Firefox/55.8",
+                                                        bypass_csp=True,
+                                                        java_script_enabled=True,
+                                                        service_workers="block",
+                                                        reduced_motion="reduce")
+                        current_page.set_viewport_size({"width": 1600, "height": 1200})
+                        article_data, users_data = process_article(current_page, item_link, browser)
 
                         category = json.loads(stream_item.get_attribute('data-i13n-cfg'))['categoryLabel']
                         article_data['category'] = category
@@ -371,7 +387,6 @@ def job():
                 print(e)
 
         # Close resources
-        context.close()
         browser.close()
 
         # Write to MongoDB
@@ -408,7 +423,7 @@ def job():
         visited_users.clear()
 
 
-schedule.every().day.at("12:20").do(job)
+schedule.every().day.at("00:00").do(job)
 while True:
     schedule.run_pending()
     time.sleep(1)
