@@ -102,7 +102,7 @@ def generate_more_comments(iframe_locator, _page):
         comment_section_locator = 'div[class*="src-components-FeedItem-styles__IndexWrapper"]'
         comment_section_elements = iframe_locator.locator(comment_section_locator).element_handles()
 
-        if comment_section_elements.__len__() == 10:
+        if comment_section_elements.__len__() == 100:
             generated_enough = True
         elif last_number_comments == comment_section_elements.__len__():
             generated_enough = True
