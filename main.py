@@ -370,7 +370,8 @@ def job():
                     if item_link not in visited_articles and item_link.__contains__('.html'):
                         visited_articles.add(item_link)
                         current_page = browser.new_page(ignore_https_errors=True,
-                                                        user_agent="Mozilla/5.0 (Macintosh; U; Intel Mac OS X 10_10_3; en-US) "
+                                                        user_agent="Mozilla/5.0 (Macintosh; U; Intel Mac OS X "
+                                                                   "10_10_3; en-US)"
                                                                    "Gecko/20100101 Firefox/55.8",
                                                         bypass_csp=True,
                                                         java_script_enabled=True,
@@ -398,29 +399,11 @@ def job():
         collection_articles = db['Articles']
         collection_users = db['Users']
 
-        # TODO: Fix Database issues
         if articles.__len__() > 0:
-            # write_to_mongodb(collection_articles, articles, "url")
-            with open("articles.csv", 'a', newline='', encoding='utf-8') as csvfile:
-                fieldnames = articles[0].keys()
-                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            write_to_mongodb(collection_articles, articles, "url")
 
-                if csvfile.tell() == 0:
-                    writer.writeheader()
-                for data in articles:
-                    writer.writerow(data)
-
-        # TODO: Fix Database issues
         if users.__len__() > 0:
-            # write_to_mongodb(collection_users, users, "username")
-            with open("users.json", "a") as file:
-                file.seek(0, 2)
-
-                if file.tell() > 0:
-                    file.write(",")
-
-                json.dump(users, file, indent=4)
-                file.write("\n")
+            write_to_mongodb(collection_users, users, "username")
 
         users.clear()
         articles.clear()
