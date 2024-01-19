@@ -102,7 +102,7 @@ def generate_more_comments(iframe_locator, _page):
         comment_section_locator = 'div[class*="src-components-FeedItem-styles__IndexWrapper"]'
         comment_section_elements = iframe_locator.locator(comment_section_locator).element_handles()
 
-        if comment_section_elements.__len__() == 100:
+        if comment_section_elements.__len__() >= 300:
             generated_enough = True
         elif last_number_comments == comment_section_elements.__len__():
             generated_enough = True
@@ -119,12 +119,6 @@ def generate_more_comments(iframe_locator, _page):
 
 # Get Comment Section data with source article and comments
 def parse_comment_sections(iframe_locator, _page, browser):
-    try:
-        generate_more_comments(iframe_locator, _page)
-        print("Finished scrolling for more comments on profile")
-    except Exception as e:
-        print(e)
-
     comment_section_locator = 'div[class*="src-components-FeedItem-styles__IndexWrapper"]'
     comment_section_elements = iframe_locator.locator(comment_section_locator).element_handles()
     comments_section = []
@@ -147,7 +141,7 @@ def parse_comment_sections(iframe_locator, _page, browser):
                                                service_workers="block",
                                                reduced_motion="reduce")
         try:
-            source_article_page.goto(source_article, timeout=30000, wait_until="domcontentloaded")
+            source_article_page.goto(source_article, timeout=5000, wait_until="domcontentloaded")
             source_article_data = get_article_data(source_article_page)
             source_article_page.close()
         except Exception as e:
@@ -218,11 +212,18 @@ def parse_users(iframe_locator, _page, browser):
                 print("Private profile skipping to next")
                 profile_button.dispose()
                 if close_user_profile(iframe_locator, _page):
+                    print("finished scraping user")
                     continue
                 else:
                     return users_objs
 
             if user['username'] not in visited_users:
+
+                try:
+                    generate_more_comments(iframe_locator, _page)
+                    print("Finished scrolling for more comments on profile")
+                except Exception as e:
+                    print(e)
 
                 # Load Read More Comments
                 read_more_locator = 'a[class*="src-components-FeedItem-styles__ShowMoreButton"]'
@@ -240,10 +241,12 @@ def parse_users(iframe_locator, _page, browser):
                 # Parse comments under a single source article
                 try:
                     user['comments_section'] = parse_comment_sections(iframe_locator, _page, browser)
+                    print("parsing comment section finished")
                 except Exception as e:
                     print("parsing comment section finished")
                     profile_button.dispose()
                     if close_user_profile(iframe_locator, _page):
+                        print("finished scraping user")
                         continue
                     else:
                         return users_objs
@@ -252,8 +255,10 @@ def parse_users(iframe_locator, _page, browser):
                 visited_users.add(user['username'])
             profile_button.dispose()
             if close_user_profile(iframe_locator, _page):
+                print("finished scraping user")
                 continue
             else:
+                print("")
                 return users_objs
         except Exception as e:
             print(e)
@@ -280,7 +285,7 @@ def get_users_data(_page, browser):
         return []
 
     iframe_locator = _page.frame_locator('iframe[id^="jacSandbox_"]')
-    _page.set_default_timeout(3000)
+    _page.set_default_timeout(5000)
     # Load all comments
     load_comments_loc = ".spcv_load-more-messages"
     print("Loading more users")
@@ -300,7 +305,7 @@ def get_users_data(_page, browser):
 def process_article(_page, link, browser, retries=3):
     for i in range(retries):
         try:
-            _page.goto(link, timeout=30000, wait_until="domcontentloaded")
+            _page.goto(link, timeout=5000, wait_until="domcontentloaded")
             _article_data = get_article_data(_page)
             user_data = get_users_data(_page, browser)
             return _article_data, user_data
@@ -324,7 +329,7 @@ def write_to_mongodb(_collection, _array, id_field):
 # Run the job
 def job():
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False)
+        browser = p.chromium.launch(headless=True)
 
         articles = []
         users = []
@@ -344,7 +349,7 @@ def job():
                 retries = 3
                 while retries > 0:
                     try:
-                        start_page.goto(start_link, timeout=30000, wait_until="domcontentloaded")
+                        start_page.goto(start_link, timeout=5000, wait_until="domcontentloaded")
                         retries = 0
                     except Exception as e:
                         print(e)
@@ -424,6 +429,7 @@ def job():
 
 
 schedule.every().day.at("00:00").do(job)
+schedule.every().day.at("12:00").do(job)
 while True:
     schedule.run_pending()
     time.sleep(1)
