@@ -194,7 +194,9 @@ def parse_comment_sections(iframe_locator, _page, browser):
                 if _type.startswith("Replied to"):
                     x = _type.split(" ")
                     res = x[1].replace('\xa0', ' ')
-                    time_posted = f'{res.split("o", 1)[1]} {x[2]} {x[3]}'.strip()
+                    time_posted = f'{res.split("o", 1)[1]} {x[2]} {x[3]}'.strip().split()
+                    time_posted = ' '.join(time_posted[1:])
+                    print(time_posted)
                     _, rest_of_string = _type.split("o", 1)
                     _type = f"Replied to {rest_of_string}".split()
                     _type = " ".join(_type[:3])
