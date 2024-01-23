@@ -451,7 +451,7 @@ def job():
 
 
 if __name__ == '__main__':
-    schedule.every().day.at("15:00").do(job)
+    schedule.every().day.at("16:30").do(job)
     while True:
         schedule.run_pending()
         time.sleep(1)
