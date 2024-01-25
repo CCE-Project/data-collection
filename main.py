@@ -448,7 +448,3 @@ def job():
         articles.clear()
         visited_articles.clear()
         visited_users.clear()
-
-
-if __name__ == '__main__':
-    job()
