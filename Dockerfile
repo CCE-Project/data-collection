@@ -36,6 +36,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Install playwright browsers
 RUN playwright install
 
+# Install dependencies for Playwright
+RUN playwright install-deps
+
 # Copy the rest of the application code
 COPY . .
 
