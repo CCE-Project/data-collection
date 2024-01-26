@@ -6,10 +6,7 @@ from pymongo import MongoClient
 import re
 import asyncio
 import certifi
-import logging
 
-log_file_path = 'logs.txt'
-logging.basicConfig(filename=log_file_path, level=logging.ERROR)
 
 with open('./config.json', 'r') as f:
     config = json.load(f)
@@ -72,7 +69,7 @@ async def get_article_data(page):
             "category": category_label
         }
     except Exception as e:
-        logging.error("Failed to get article data")
+        print("Failed to get article data")
         return None
 
 
@@ -108,7 +105,7 @@ async def get_general_user_info(iframe_locator):
 
 # Scroll down to load more comments
 async def generate_more_comments(iframe_locator, _page):
-    logging.info("Scrolling down to load more comments from user")
+    print("Scrolling down to load more comments from user")
     try:
         generated_enough = False
         i = 0
@@ -131,8 +128,8 @@ async def generate_more_comments(iframe_locator, _page):
 
         await _page.mouse.wheel(50000 * i, 0)
     except Exception as e:
-        logging.info("Scrolling for more comments on user profile exception")
-    logging.info("Finished scroll for more comments on user page")
+        print("Scrolling for more comments on user profile exception")
+    print("Finished scroll for more comments on user page")
 
 
 # Load read more comments
@@ -147,7 +144,7 @@ async def load_read_more_comments(iframe_locator):
                 await read_more.dispose()
             read_more_buttons = await iframe_locator.locator(read_more_locator).element_handles()
     except Error as e:
-        logging.info("Finished loading all sections")
+        print("Finished loading all sections")
 
 
 # Get Comment Section data with source article and comments
@@ -174,11 +171,11 @@ async def parse_comment_sections(iframe_locator, _page, browser):
             if source_article_data is None:
                 raise Exception("Source article data is None")
             await source_article_page.close()
-            logging.info("Got source article data")
+            print("Got source article data")
         except Exception as e:
             await source_article_page.close()
             await comment_section.dispose()
-            logging.info("Finished parsing comments section")
+            print("Finished parsing comments section")
             continue
 
         # Parse each comment and type
@@ -220,7 +217,7 @@ async def close_user_profile(_iframe_locator, _page):
         await close_profile_button.click()
         return True
     except Exception as e:
-        logging.info("Failed to close profile")
+        print("Failed to close profile")
         return False
 
 
@@ -241,11 +238,11 @@ async def parse_users(iframe_locator, _page, browser):
                 user['likes'], user['username'], user['nickname'], user['post_num'] = await get_general_user_info(
                     iframe_locator)
             except Error as e:
-                logging.info("Private profile skipping to next")
+                print("Private profile skipping to next")
                 await profile_button.dispose()
                 close = await close_user_profile(iframe_locator, _page)
                 if close:
-                    logging.info("finished scraping user")
+                    print("finished scraping user")
                     continue
                 else:
                     return users_objs
@@ -261,13 +258,13 @@ async def parse_users(iframe_locator, _page, browser):
                 # Parse comments under a single source article
                 try:
                     user['comments_section'] = await parse_comment_sections(iframe_locator, _page, browser)
-                    logging.info("parsing comment section finished")
+                    print("parsing comment section finished")
                 except Exception as e:
-                    logging.info("parsing comment section finished")
+                    print("parsing comment section finished")
                     await profile_button.dispose()
                     close = await close_user_profile(iframe_locator, _page)
                     if close:
-                        logging.info("finished scraping user")
+                        print("finished scraping user")
                         continue
                     else:
                         return users_objs
@@ -277,12 +274,12 @@ async def parse_users(iframe_locator, _page, browser):
             await profile_button.dispose()
             close = await close_user_profile(iframe_locator, _page)
             if close:
-                logging.info("finished scraping user")
+                print("finished scraping user")
                 continue
             else:
                 return users_objs
         except Exception as e:
-            logging.error(e)
+            print(e)
             break
 
     return users_objs
@@ -303,13 +300,13 @@ async def get_users_data(_page, browser):
     try:
         await open_comments_button(_page)
     except Exception as e:
-        logging.info("Could not find comment section skipping to next article")
+        print("Could not find comment section skipping to next article")
         return []
 
     iframe_locator = _page.frame_locator('iframe[id^="jacSandbox_"]')
     # Load all comments
     load_comments_loc = ".spcv_load-more-messages"
-    logging.info("Loading more users")
+    print("Loading more users")
     try:
         button = iframe_locator.locator(load_comments_loc)
         while button:
@@ -317,7 +314,7 @@ async def get_users_data(_page, browser):
             await button.click()
             button = iframe_locator.locator(load_comments_loc).first
     except TimeoutError as e:
-        logging.info("Finished loading more users from comment section")
+        print("Finished loading more users from comment section")
 
     res = await parse_users(iframe_locator, _page, browser)
     return res
@@ -333,7 +330,7 @@ def write_to_mongodb(_collection, _array, id_field):
         if docs_to_insert:
             _collection.insert_many(docs_to_insert)
     except Exception as e:
-        logging.info(e)
+        print(e)
 
 
 # Navigate to page
@@ -343,8 +340,8 @@ async def navigate_to_page(page, link):
             await page.goto(link, timeout=5000, wait_until="domcontentloaded")
             break
         except Exception as e:
-            await asyncio.sleep(3)
-            logging.error(f"Error: {str(e)}")
+            print(f"Error: {str(e)}")
+            await asyncio.sleep(1)
 
 
 # Scrolls down to generate more articles
@@ -389,16 +386,16 @@ async def scrape_section(link, p):
                 try:
                     users_data = await get_users_data(article_page, browser)
                 except Exception as e:
-                    logging.error("Failed to get users data")
+                    print(e)
                 if users_data is not None:
                     section_users_data.extend(users_data)
 
-            logging.info("finished scraping article")
             await article_page.close()
+            print("finished article")
 
     await page.close()
     await browser.close()
-    logging.info("Finished scraping section")
+    print("finished section")
 
     return section_article_data, section_users_data
 
@@ -428,7 +425,7 @@ async def process_link(link, p, articles, users):
     try:
         section_articles, section_users = await scrape_section(link, p)
     except Exception as e:
-        logging.error("Error processing sections")
+        print(e)
 
     if section_articles is not None:
         articles.extend(section_articles)
@@ -475,7 +472,6 @@ async def job():
         articles.clear()
         visited_articles.clear()
         visited_users.clear()
-        open(log_file_path, 'w').close()
 
 
 if __name__ == '__main__':
