@@ -1,11 +1,10 @@
 import json
-from playwright.sync_api import sync_playwright
-from playwright.sync_api import TimeoutError
-from playwright.sync_api import Error
+from playwright.async_api import async_playwright
+from playwright.async_api import TimeoutError
+from playwright.async_api import Error
 from pymongo import MongoClient
 import re
-import schedule
-import time
+import asyncio
 import certifi
 
 with open('./config.json', 'r') as f:
@@ -22,22 +21,22 @@ visited_users = set()
 
 
 # Get article data for whole page
-def get_article_data(page):
+async def get_article_data(page):
     try:
         json_selector = 'script[type="application/ld+json"]'
-        json_content = page.inner_text(json_selector)
+        json_content = await page.inner_text(json_selector)
         data = json.loads(json_content)
 
-        wafer_json_content = page.inner_text('.wafer-caas-data[type="application/json"]')
+        wafer_json_content = await page.inner_text('.wafer-caas-data[type="application/json"]')
         data_wafer = json.loads(wafer_json_content)
 
-        og_url = page.evaluate('(document.querySelector("meta[property=\'og:url\']") || {}).content')
-        news_keywords = page.evaluate('(document.querySelector("meta[name=\'news_keywords\']") || {}).content')
-        og_title = page.evaluate('(document.querySelector("meta[property=\'og:title\']") || {}).content')
-        og_description = page.evaluate('(document.querySelector("meta[property=\'og:description\']") || {}).content')
-        og_image = page.evaluate('(document.querySelector("meta[property=\'og:image\']") || {}).content')
-        body = page.inner_text('.caas-body')
-        min_read = page.inner_text('.caas-attr-mins-read')
+        og_url = await page.evaluate('(document.querySelector("meta[property=\'og:url\']") || {}).content')
+        news_keywords = await page.evaluate('(document.querySelector("meta[name=\'news_keywords\']") || {}).content')
+        og_title = await page.evaluate('(document.querySelector("meta[property=\'og:title\']") || {}).content')
+        og_description = await page.evaluate('(document.querySelector("meta[property=\'og:description\']") || {}).content')
+        og_image = await page.evaluate('(document.querySelector("meta[property=\'og:image\']") || {}).content')
+        body = await page.inner_text('.caas-body')
+        min_read = await page.inner_text('.caas-attr-mins-read')
         date_published = data.get("datePublished")
         date_modified = data.get("dateModified")
         authors = data.get('author')
@@ -47,9 +46,9 @@ def get_article_data(page):
         news_outlet_name = data.get('provider').get('name')
 
         script_content = page.locator('//*[@id="atomic"]/body/script[4]')
-        script_content.wait_for(state="attached")
-        page.evaluate(script_content.text_content())
-        category_label = page.evaluate('() => window.YAHOO.context.meta.categoryLabel')
+        await script_content.wait_for(state="attached")
+        await page.evaluate(await script_content.text_content())
+        category_label = await page.evaluate('() => window.YAHOO.context.meta.categoryLabel')
 
         print(og_title)
         return {
@@ -74,25 +73,26 @@ def get_article_data(page):
 
 
 # Get General User Info
-def get_general_user_info(iframe_locator):
+async def get_general_user_info(iframe_locator):
     # Get user info
     nickname_locator = 'div[class*="src-components-TopMenu-TopMenu__username"]'
     username_locator = 'bdi'
     post_num_locator = 'div[class*="src-components-Navbar-Navbar__Label"]'
     likes_rec_locator = 'div[class*="src-components-DetailText-DetailText__DetailText"][data-testid="text"]'
     likes_rec = iframe_locator.locator(likes_rec_locator)
-    likes_rec.wait_for(state="attached")
-    likes_rec = likes_rec.first.text_content().split()[0]
+    await likes_rec.wait_for(state="attached")
+    likes_rec = await likes_rec.first.text_content()
+    likes_rec = likes_rec.split()[0]
 
     username = iframe_locator.locator(username_locator)
-    username.wait_for(state="attached")
-    username = username.first.text_content()
+    await username.wait_for(state="attached")
+    username = await username.first.text_content()
     nickname = iframe_locator.locator(nickname_locator)
-    nickname.wait_for(state="attached")
-    nickname = nickname.first.text_content()
+    await nickname.wait_for(state="attached")
+    nickname = await nickname.first.text_content()
     post_num_string = iframe_locator.locator(post_num_locator)
-    post_num_string.wait_for(state="attached")
-    post_num_string = post_num_string.first.inner_text()
+    await post_num_string.wait_for(state="attached")
+    post_num_string = await post_num_string.first.inner_text()
     match = re.search(r'\((.*?)\)', post_num_string)
     post_num = ""
     if match:
@@ -103,7 +103,7 @@ def get_general_user_info(iframe_locator):
 
 
 # Scroll down to load more comments
-def generate_more_comments(iframe_locator, _page):
+async def generate_more_comments(iframe_locator, _page):
     print("Scrolling down to load more comments from user")
     try:
         generated_enough = False
@@ -111,7 +111,7 @@ def generate_more_comments(iframe_locator, _page):
         last_number_comments = 0
         while not generated_enough:
             comment_section_locator = 'div[class*="src-components-FeedItem-styles__IndexWrapper"]'
-            comment_section_elements = iframe_locator.locator(comment_section_locator).element_handles()
+            comment_section_elements = await iframe_locator.locator(comment_section_locator).element_handles()
 
             if comment_section_elements.__len__() >= 300:
                 generated_enough = True
@@ -120,36 +120,36 @@ def generate_more_comments(iframe_locator, _page):
             else:
                 i += 1
                 for comment_section in comment_section_elements:
-                    comment_section.dispose()
-                _page.mouse.wheel(0, 50000)
+                    await comment_section.dispose()
+                await _page.mouse.wheel(0, 50000)
                 last_number_comments = comment_section_elements.__len__()
-                time.sleep(1)
+                await asyncio.sleep(1)
 
-        _page.mouse.wheel(50000 * i, 0)
+        await _page.mouse.wheel(50000 * i, 0)
     except Exception as e:
         print(e)
     print("Finished scroll for more comments on user page")
 
 
 # Load read more comments
-def load_read_more_comments(iframe_locator):
+async def load_read_more_comments(iframe_locator):
     read_more_locator = 'a[class*="src-components-FeedItem-styles__ShowMoreButton"]'
     try:
-        read_more_buttons = iframe_locator.locator(read_more_locator).element_handles()
+        read_more_buttons = await iframe_locator.locator(read_more_locator).element_handles()
         while read_more_buttons:
             for read_more in read_more_buttons:
-                read_more.wait_for_element_state("stable")
-                read_more.click()
-                read_more.dispose()
-            read_more_buttons = iframe_locator.locator(read_more_locator).element_handles()
+                await read_more.wait_for_element_state("stable")
+                await read_more.click()
+                await read_more.dispose()
+            read_more_buttons = await iframe_locator.locator(read_more_locator).element_handles()
     except Error as e:
         print("Finished loading all sections")
 
 
 # Get Comment Section data with source article and comments
-def parse_comment_sections(iframe_locator, _page, browser):
+async def parse_comment_sections(iframe_locator, _page, browser):
     comment_section_locator = 'div[class*="src-components-FeedItem-styles__IndexWrapper"]'
-    comment_section_elements = iframe_locator.locator(comment_section_locator).element_handles()
+    comment_section_elements = await iframe_locator.locator(comment_section_locator).element_handles()
     comments_section = []
     for comment_section in comment_section_elements:
         source_article_locator = 'a[class*="src-components-FeedItem-styles__ExtractWrapper"]'
@@ -157,35 +157,36 @@ def parse_comment_sections(iframe_locator, _page, browser):
         comment_text_locator = 'div[class*="src-components-FeedItem-styles__TextWrapper"]'
 
         # Get source article data
-        source_article = comment_section.query_selector(source_article_locator).get_attribute('href')
+        source_article = await comment_section.query_selector(source_article_locator)
+        source_article = await source_article.get_attribute('href')
 
         if "news.yahoo.com" not in source_article:
-            comment_section.dispose()
+            await comment_section.dispose()
             continue
-        source_article_page = create_new_page(browser)
+        source_article_page = await create_new_page(browser)
         try:
-            navigate_to_page(source_article_page, source_article)
-            source_article_data = get_article_data(source_article_page)
+            await navigate_to_page(source_article_page, source_article)
+            source_article_data = await get_article_data(source_article_page)
             if source_article_data is None:
                 raise Exception("Source article data is None")
-            source_article_page.close()
+            await source_article_page.close()
             print("Got source article data")
         except Exception as e:
             print(e)
-            source_article_page.close()
-            comment_section.dispose()
+            await source_article_page.close()
+            await comment_section.dispose()
             print("Finished parsing comments section")
             continue
 
         # Parse each comment and type
         comments = []
-        type_comment_elements = comment_section.query_selector_all(type_comment_locator)
-        comment_text_elements = comment_section.query_selector_all(comment_text_locator)
-        comment_section.dispose()
+        type_comment_elements = await comment_section.query_selector_all(type_comment_locator)
+        comment_text_elements = await comment_section.query_selector_all(comment_text_locator)
+        await comment_section.dispose()
         if type_comment_elements.__len__() == comment_text_elements.__len__():
             for index in range(type_comment_elements.__len__()):
-                _type = type_comment_elements[index].inner_text()
-                comment_text = comment_text_elements[index].inner_text()
+                _type = await type_comment_elements[index].inner_text()
+                comment_text = await comment_text_elements[index].inner_text()
                 time_posted = ""
                 if _type.startswith("Posted"):
                     time_posted = _type.split("d", 1)[1].strip()
@@ -208,12 +209,12 @@ def parse_comment_sections(iframe_locator, _page, browser):
     return comments_section
 
 
-def close_user_profile(_iframe_locator, _page):
+async def close_user_profile(_iframe_locator, _page):
     try:
         close_profile_button = _iframe_locator.locator('button[title="Close the modal"]')
-        close_profile_button.scroll_into_view_if_needed()
-        close_profile_button.wait_for(state="attached")
-        close_profile_button.click()
+        await close_profile_button.scroll_into_view_if_needed()
+        await close_profile_button.wait_for(state="attached")
+        await close_profile_button.click()
         return True
     except Exception as e:
         print(f"Failed to close profile")
@@ -221,25 +222,26 @@ def close_user_profile(_iframe_locator, _page):
 
 
 # Parse Users
-def parse_users(iframe_locator, _page, browser):
+async def parse_users(iframe_locator, _page, browser):
     users_objs = []
     profile_locator = 'button[data-spot-im-class="user-info-username"]'
-    profile_buttons = iframe_locator.locator(profile_locator).element_handles()
+    profile_buttons = await iframe_locator.locator(profile_locator).element_handles()
     for profile_button in profile_buttons:
         try:
-            profile_button.wait_for_element_state("stable")
-            profile_button.click()
+            await profile_button.wait_for_element_state("stable")
+            await profile_button.click()
 
             # Get General User Info
             user = dict()
 
             try:
-                user['likes'], user['username'], user['nickname'], user['post_num'] = get_general_user_info(
+                user['likes'], user['username'], user['nickname'], user['post_num'] = await get_general_user_info(
                     iframe_locator)
             except Error as e:
                 print("Private profile skipping to next")
-                profile_button.dispose()
-                if close_user_profile(iframe_locator, _page):
+                await profile_button.dispose()
+                close = await close_user_profile(iframe_locator, _page)
+                if close:
                     print("finished scraping user")
                     continue
                 else:
@@ -248,19 +250,20 @@ def parse_users(iframe_locator, _page, browser):
             if user['username'] not in visited_users:
 
                 # Generate more comments by scrolling
-                generate_more_comments(iframe_locator, _page)
+                await generate_more_comments(iframe_locator, _page)
 
                 # Load Read More Comments
-                load_read_more_comments(iframe_locator)
+                await load_read_more_comments(iframe_locator)
 
                 # Parse comments under a single source article
                 try:
-                    user['comments_section'] = parse_comment_sections(iframe_locator, _page, browser)
+                    user['comments_section'] = await parse_comment_sections(iframe_locator, _page, browser)
                     print("parsing comment section finished")
                 except Exception as e:
                     print("parsing comment section finished")
-                    profile_button.dispose()
-                    if close_user_profile(iframe_locator, _page):
+                    await profile_button.dispose()
+                    close = await close_user_profile(iframe_locator, _page)
+                    if close:
                         print("finished scraping user")
                         continue
                     else:
@@ -268,8 +271,9 @@ def parse_users(iframe_locator, _page, browser):
 
                 users_objs.append(user)
                 visited_users.add(user['username'])
-            profile_button.dispose()
-            if close_user_profile(iframe_locator, _page):
+            await profile_button.dispose()
+            close = await close_user_profile(iframe_locator, _page)
+            if close:
                 print("finished scraping user")
                 continue
             else:
@@ -282,19 +286,19 @@ def parse_users(iframe_locator, _page, browser):
 
 
 # Find and open comments button
-def open_comments_button(_page):
+async def open_comments_button(_page):
     button_class = '.caas-button.view-cmts-cta.showCmtCount'
     button_element = _page.locator(button_class)
-    button_element.scroll_into_view_if_needed()
-    button_element.wait_for(state="attached")
-    button_element.first.click()
+    await button_element.scroll_into_view_if_needed()
+    await button_element.wait_for(state="attached")
+    await button_element.first.click()
 
 
 # Get user data
-def get_users_data(_page, browser):
+async def get_users_data(_page, browser):
     # Activate comment section
     try:
-        open_comments_button(_page)
+        await open_comments_button(_page)
     except Exception as e:
         print("Could not find comment section skipping to next article")
         return []
@@ -306,13 +310,14 @@ def get_users_data(_page, browser):
     try:
         button = iframe_locator.locator(load_comments_loc)
         while button:
-            button.wait_for(state="attached")
-            button.click()
+            await button.wait_for(state="attached")
+            await button.click()
             button = iframe_locator.locator(load_comments_loc).first
     except TimeoutError as e:
         print("Finished loading more users from comment section")
 
-    return parse_users(iframe_locator, _page, browser)
+    res = await parse_users(iframe_locator, _page, browser)
+    return res
 
 
 # Write array to MongoDB
@@ -329,71 +334,72 @@ def write_to_mongodb(_collection, _array, id_field):
 
 
 # Navigate to page
-def navigate_to_page(page, link):
+async def navigate_to_page(page, link):
     for i in range(0, PAGE_RETRIES):
         try:
-            page.goto(link, timeout=5000, wait_until="domcontentloaded")
+            await page.goto(link, timeout=5000, wait_until="domcontentloaded")
             break
         except Exception as e:
-            print(e)
+            print(f"Error: {str(e)}")
 
 
 # Scrolls down to generate more articles
-def generate_more_articles(page, link):
+async def generate_more_articles(page, link):
     duration = 30
     for i in range(duration):
-        page.evaluate('window.scrollTo(0, document.body.scrollHeight);')
-        time.sleep(1)
+        await page.evaluate('window.scrollTo(0, document.body.scrollHeight);')
+        await asyncio.sleep(1)
 
 
 # Scrape Yahoo News section
-def scrape_section(link, p):
-    browser = create_new_browser(p)
-    page = create_new_page(browser)
+async def scrape_section(link, p):
+    browser = await create_new_browser(p)
+    page = await create_new_page(browser)
 
-    navigate_to_page(page, link)
-    generate_more_articles(page, link)
+    await navigate_to_page(page, link)
+    # await generate_more_articles(page, link)
 
     section_article_data = []
     section_users_data = []
 
-    stream_items = page.query_selector_all('.stream-item')
+    stream_items = await page.query_selector_all('.stream-item')
     for stream_item in stream_items:
-        article_link = stream_item.query_selector('a').get_attribute('href')
+        article_link = await stream_item.query_selector('a')
+        article_link = await article_link.get_attribute('href')
         if 'news.yahoo.com' not in article_link and "https://" not in article_link:
             print(article_link)
             article_link = 'https://news.yahoo.com' + article_link
         if article_link not in visited_articles and article_link.__contains__(
                 '.html') and 'news.yahoo.com' in article_link:
             visited_articles.add(article_link)
-            article_page = create_new_page(browser)
-            article_page.set_viewport_size({"width": 1600, "height": 1200})
+            article_page = await create_new_page(browser)
+            await article_page.set_viewport_size({"width": 1600, "height": 1200})
 
-            navigate_to_page(article_page, article_link)
+            await navigate_to_page(article_page, article_link)
 
-            article_data = get_article_data(article_page)
+            article_data = await get_article_data(article_page)
 
             if article_data is not None:
                 users_data = None
                 section_article_data.append(article_data)
                 try:
-                    users_data = get_users_data(article_page, browser)
+                    users_data = await get_users_data(article_page, browser)
                 except Exception as e:
                     print(e)
                 if users_data is not None:
                     section_users_data.extend(users_data)
 
-            article_page.close()
+            await article_page.close()
 
-    page.close()
-    browser.close()
+    await page.close()
+    await browser.close()
 
     return section_article_data, section_users_data
 
 
 # Create new page given browser
-def create_new_page(browser):
-    page = browser.new_page(ignore_https_errors=True,
+async def create_new_page(browser):
+    page = await browser.new_page(ignore_https_errors=True,
                             user_agent="Mozilla/5.0 (Macintosh; U; Intel Mac OS X 10_10_3; en-US) "
                                        "Gecko/20100101 Firefox/55.8",
                             bypass_csp=True,
@@ -405,42 +411,48 @@ def create_new_page(browser):
 
 
 # Create new browser
-def create_new_browser(p):
-    browser = p.chromium.launch(headless=True)
+async def create_new_browser(p):
+    browser = await p.chromium.launch(headless=True)
     return browser
 
 
+async def process_link(link, p, articles, users):
+    try:
+        section_articles, section_users = await scrape_section(link, p)
+    except Exception as e:
+        section_articles = []
+        section_users = []
+
+    if section_articles is not None:
+        articles.extend(section_articles)
+        if section_users is not None:
+            users.extend(section_users)
+
+
 # Run the job
-def job():
-    with sync_playwright() as p:
-        browser = create_new_browser(p)
+async def job():
+    async with async_playwright() as p:
+        browser = await create_new_browser(p)
 
         articles = []
         users = []
 
-        landing_page = create_new_page(browser)
-        navigate_to_page(landing_page, "https://news.yahoo.com/")
-        nav_bar_elements = landing_page.query_selector_all('#ybar-navigation > div > ul > li')
+        landing_page = await create_new_page(browser)
+        await navigate_to_page(landing_page, "https://news.yahoo.com/")
+        nav_bar_elements = await landing_page.query_selector_all('#ybar-navigation > div > ul > li')
         nav_bar_elements = nav_bar_elements[0:3] + nav_bar_elements[4:8]
         links = []
 
         for nav_bar_element in nav_bar_elements:
-            link = nav_bar_element.query_selector("a").get_attribute('href')
+            link = await nav_bar_element.query_selector("a")
+            link = await link.get_attribute('href')
             links.append(link)
 
-        landing_page.close()
-        browser.close()
+        await landing_page.close()
+        await browser.close()
 
-        for link in links:
-            try:
-                section_articles, section_users = scrape_section(link, p)
-            except Exception as e:
-                section_articles = []
-                section_users = []
-            if section_articles is not None:
-                articles.extend(section_articles)
-                if section_users is not None:
-                    users.extend(section_users)
+        tasks = [process_link(link, p, articles, users) for link in links]
+        await asyncio.gather(*tasks)
 
         # Write to MongoDB
         collection_articles = db['Articles']
@@ -459,4 +471,4 @@ def job():
 
 
 if __name__ == '__main__':
-    job()
+    asyncio.run(job())
