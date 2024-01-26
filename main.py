@@ -417,11 +417,12 @@ async def create_new_browser(p):
 
 
 async def process_link(link, p, articles, users):
+    section_articles = []
+    section_users = []
     try:
         section_articles, section_users = await scrape_section(link, p)
     except Exception as e:
-        section_articles = []
-        section_users = []
+        print(e)
 
     if section_articles is not None:
         articles.extend(section_articles)
