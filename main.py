@@ -374,8 +374,12 @@ def scrape_section(link, p):
             article_data = get_article_data(article_page)
 
             if article_data is not None:
+                users_data = None
                 section_article_data.append(article_data)
-                users_data = get_users_data(article_page, browser)
+                try:
+                    users_data = get_users_data(article_page, browser)
+                except Exception as e:
+                    print(e)
                 if users_data is not None:
                     section_users_data.extend(users_data)
 
@@ -428,7 +432,11 @@ def job():
         browser.close()
 
         for link in links:
-            section_articles, section_users = scrape_section(link, p)
+            try:
+                section_articles, section_users = scrape_section(link, p)
+            except Exception as e:
+                section_articles = []
+                section_users = []
             if section_articles is not None:
                 articles.extend(section_articles)
                 if section_users is not None:
