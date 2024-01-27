@@ -455,8 +455,8 @@ async def job():
         await landing_page.close()
         await browser.close()
 
-        tasks = [process_link(link, p, articles, users) for link in links]
-        await asyncio.gather(*tasks)
+        for link in links:
+            await process_link(link, p, articles=articles, users=users)
 
         # Write to MongoDB
         collection_articles = db['Articles']
