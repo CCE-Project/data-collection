@@ -7,7 +7,6 @@ import re
 import asyncio
 import certifi
 
-
 with open('./config.json', 'r') as f:
     config = json.load(f)
 
@@ -34,7 +33,8 @@ async def get_article_data(page):
         og_url = await page.evaluate('(document.querySelector("meta[property=\'og:url\']") || {}).content')
         news_keywords = await page.evaluate('(document.querySelector("meta[name=\'news_keywords\']") || {}).content')
         og_title = await page.evaluate('(document.querySelector("meta[property=\'og:title\']") || {}).content')
-        og_description = await page.evaluate('(document.querySelector("meta[property=\'og:description\']") || {}).content')
+        og_description = await page.evaluate(
+            '(document.querySelector("meta[property=\'og:description\']") || {}).content')
         og_image = await page.evaluate('(document.querySelector("meta[property=\'og:image\']") || {}).content')
         body = await page.inner_text('.caas-body')
         min_read = await page.inner_text('.caas-attr-mins-read')
@@ -114,7 +114,7 @@ async def generate_more_comments(iframe_locator, _page):
             comment_section_locator = 'div[class*="src-components-FeedItem-styles__IndexWrapper"]'
             comment_section_elements = await iframe_locator.locator(comment_section_locator).element_handles()
 
-            if comment_section_elements.__len__() >= 300:
+            if comment_section_elements.__len__() >= 600:
                 generated_enough = True
             elif last_number_comments == comment_section_elements.__len__():
                 generated_enough = True
@@ -337,7 +337,7 @@ def write_to_mongodb(_collection, _array, id_field):
 async def navigate_to_page(page, link):
     for i in range(0, PAGE_RETRIES):
         try:
-            await page.goto(link, timeout=5000, wait_until="domcontentloaded")
+            await page.goto(link, timeout=20000, wait_until="domcontentloaded")
             break
         except Exception as e:
             print(f"Error: {str(e)}")
@@ -358,7 +358,7 @@ async def scrape_section(link, p):
     page = await create_new_page(browser)
 
     await navigate_to_page(page, link)
-    # await generate_more_articles(page, link)
+    await generate_more_articles(page, link)
 
     section_article_data = []
     section_users_data = []
@@ -403,13 +403,13 @@ async def scrape_section(link, p):
 # Create new page given browser
 async def create_new_page(browser):
     page = await browser.new_page(ignore_https_errors=True,
-                            user_agent="Mozilla/5.0 (Macintosh; U; Intel Mac OS X 10_10_3; en-US) "
-                                       "Gecko/20100101 Firefox/55.8",
-                            bypass_csp=True,
-                            java_script_enabled=True,
-                            service_workers="block",
-                            reduced_motion="reduce")
-    page.set_default_timeout(5000)
+                                  user_agent="Mozilla/5.0 (Macintosh; U; Intel Mac OS X 10_10_3; en-US) "
+                                             "Gecko/20100101 Firefox/55.8",
+                                  bypass_csp=True,
+                                  java_script_enabled=True,
+                                  service_workers="block",
+                                  reduced_motion="reduce")
+    page.set_default_timeout(10000)
     return page
 
 

@@ -24,7 +24,7 @@
 
 
 # Use the official Python image
-FROM python:3.11
+FROM python:3.11-alpine
 
 # Set the working directory
 WORKDIR /usr/src/app
@@ -32,6 +32,8 @@ WORKDIR /usr/src/app
 # Copy requirements file and install dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+
+ENV PYTHONUNBUFFERED=1
 
 # Install playwright browsers
 RUN playwright install
