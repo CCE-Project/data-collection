@@ -337,7 +337,7 @@ def write_to_mongodb(_collection, _array, id_field):
 async def navigate_to_page(page, link):
     for i in range(0, PAGE_RETRIES):
         try:
-            await page.goto(link, timeout=20000, wait_until="domcontentloaded")
+            await page.goto(link, timeout=5000, wait_until="domcontentloaded")
             break
         except Exception as e:
             print(f"Error: {str(e)}")
