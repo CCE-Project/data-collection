@@ -337,7 +337,7 @@ def write_to_mongodb(_collection, _array, id_field):
 async def navigate_to_page(page, link):
     for i in range(0, PAGE_RETRIES):
         try:
-            await page.goto(link, timeout=5000, wait_until="domcontentloaded")
+            await page.goto(link, timeout=10000, wait_until="domcontentloaded")
             break
         except Exception as e:
             print(f"Error: {str(e)}")
@@ -353,15 +353,12 @@ async def generate_more_articles(page, link):
 
 
 # Scrape Yahoo News section
-async def scrape_section(link, p):
+async def scrape_section(link, p, section_articles, section_users):
     browser = await create_new_browser(p)
     page = await create_new_page(browser)
 
     await navigate_to_page(page, link)
     await generate_more_articles(page, link)
-
-    section_article_data = []
-    section_users_data = []
 
     stream_items = await page.query_selector_all('.stream-item')
     for stream_item in stream_items:
@@ -382,13 +379,13 @@ async def scrape_section(link, p):
 
             if article_data is not None:
                 users_data = None
-                section_article_data.append(article_data)
+                section_articles.append(article_data)
                 try:
                     users_data = await get_users_data(article_page, browser)
                 except Exception as e:
                     print(e)
                 if users_data is not None:
-                    section_users_data.extend(users_data)
+                    section_users.extend(users_data)
 
             await article_page.close()
             print("finished article")
@@ -396,8 +393,6 @@ async def scrape_section(link, p):
     await page.close()
     await browser.close()
     print("finished section")
-
-    return section_article_data, section_users_data
 
 
 # Create new page given browser
@@ -424,7 +419,7 @@ async def process_link(link, p):
     section_users = []
 
     try:
-        section_articles, section_users = await scrape_section(link, p)
+        await scrape_section(link, p, section_articles, section_users)
     except Exception as e:
         print(e)
 
