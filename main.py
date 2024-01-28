@@ -415,7 +415,7 @@ async def create_new_page(browser):
 
 # Create new browser
 async def create_new_browser(p):
-    browser = await p.chromium.launch(headless=True)
+    browser = await p.firefox.launch(headless=True)
     return browser
 
 
