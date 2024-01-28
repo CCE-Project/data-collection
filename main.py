@@ -419,27 +419,30 @@ async def create_new_browser(p):
     return browser
 
 
-async def process_link(link, p, articles, users):
+async def process_link(link, p):
     section_articles = []
     section_users = []
+
     try:
         section_articles, section_users = await scrape_section(link, p)
     except Exception as e:
         print(e)
 
-    if section_articles is not None:
-        articles.extend(section_articles)
-        if section_users is not None:
-            users.extend(section_users)
+    # Write to MongoDB
+    collection_articles = db['Articles']
+    collection_users = db['Users']
+
+    if section_articles.__len__() > 0:
+        write_to_mongodb(collection_articles, section_articles, "url")
+
+    if section_users.__len__() > 0:
+        write_to_mongodb(collection_users, section_users, "username")
 
 
 # Run the job
 async def job():
     async with async_playwright() as p:
         browser = await create_new_browser(p)
-
-        articles = []
-        users = []
 
         landing_page = await create_new_page(browser)
         await navigate_to_page(landing_page, "https://news.yahoo.com/")
@@ -456,20 +459,8 @@ async def job():
         await browser.close()
 
         for link in links:
-            await process_link(link, p, articles=articles, users=users)
+            await process_link(link, p)
 
-        # Write to MongoDB
-        collection_articles = db['Articles']
-        collection_users = db['Users']
-
-        if articles.__len__() > 0:
-            write_to_mongodb(collection_articles, articles, "url")
-
-        if users.__len__() > 0:
-            write_to_mongodb(collection_users, users, "username")
-
-        users.clear()
-        articles.clear()
         visited_articles.clear()
         visited_users.clear()
 
