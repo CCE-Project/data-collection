@@ -404,7 +404,7 @@ async def create_new_page(browser):
                                   java_script_enabled=True,
                                   service_workers="block",
                                   reduced_motion="reduce")
-    page.set_default_timeout(5000)
+    page.set_default_timeout(10000)
     return page
 
 
