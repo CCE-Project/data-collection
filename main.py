@@ -6,8 +6,10 @@ from pymongo import MongoClient
 import re
 import asyncio
 import certifi
+import os
 
-with open('./config.json', 'r') as f:
+config_path = os.path.join(os.getcwd(), 'config.json')
+with open(config_path, 'r') as f:
     config = json.load(f)
 
 PAGE_RETRIES = 5
