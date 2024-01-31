@@ -456,8 +456,11 @@ async def job():
         await landing_page.close()
         await browser.close()
 
-        for link in links:
-            await process_link(link, p)
+        # for link in links:
+        #     await process_link(link, p)
+
+        tasks = [asyncio.create_task(process_link(link, p)) for link in links]
+        await asyncio.gather(*tasks)
 
         visited_articles.clear()
         visited_users.clear()
