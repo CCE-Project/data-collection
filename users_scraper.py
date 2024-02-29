@@ -5,6 +5,8 @@ from playwright.async_api import Error
 from pymongo import MongoClient
 import re
 import asyncio
+import pandas as pd
+import string
 import certifi
 import os
 
@@ -22,6 +24,54 @@ db = mongo_client['NLP-Cross-Cutting-Exposure']
 visited_articles = set()
 visited_users = set()
 
+# Read and save csv files (democratic, republican, outlet bias scores)
+democrat_names = pd.read_csv(config["democrat_names"])
+republican_names = pd.read_csv(config["republican_names"])
+outlet_scores = pd.read_csv(config["outlet_scores"])
+outlet_urls = set(outlet_scores["domain"])
+
+# Process input text to get rid of punctuation 
+def process_string(input_string):
+    if isinstance(input_string, str):
+        input_string = input_string.replace('\n', '')
+        input_string = input_string.replace('\'', ' ')
+        no_punct = ''.join(char for char in input_string if char not in string.punctuation)
+        words = no_punct.lower()
+        return words
+    return []
+
+# Search funtion to see if elites are mentioned 
+def mentions_politicians (input_string, names):
+    politicians_mentioned = []
+    for _, name in names.iterrows():
+        if name["last_name"] in input_string.split():
+            politicians_mentioned.append(name["last_name"])
+        if name["first_name"] in input_string.split():
+            politicians_mentioned.append(name["first_name"] + " " + name["last_name"])
+    return politicians_mentioned
+
+def clean_url(outlet_url):
+    for x in outlet_url.split('/'):
+        x = x.replace("www.", "")
+        if x in outlet_urls:
+            return x
+    return outlet_url
+
+# Determine if outlet leans liberal or conservative 
+def match_outlet_political_leaning(outlet_url):
+    search_val = outlet_scores[outlet_scores['domain'] == outlet_url]['political_leaning']
+    if len(search_val) == 0:
+        return "NONE"
+    return search_val.to_string().split()[-1]
+
+def get_classification(republicans, democrats):
+    if len(republicans) > 0 and len(democrats):
+        return "BOTH"
+    elif len(republicans) > 0:
+        return "REPUBLICAN"
+    elif len(democrats) > 0:
+        return "DEMOCRAT" 
+    return "NONE"
 
 # Get article data for whole page
 async def get_article_data(page):
@@ -45,9 +95,17 @@ async def get_article_data(page):
         date_modified = data.get("dateModified")
         authors = data.get('author')
         num_comments = data_wafer.get('commentsCount')
+        
+        # Classify article based on title + keywords 
+        article_filter_text = process_string(og_title + " " + og_description)
+        mentioned_democrats = mentions_politicians(article_filter_text, democrat_names)
+        mentioned_republicans = mentions_politicians(article_filter_text, republican_names)
+        article_classification = get_classification(mentioned_republicans, mentioned_democrats)
 
         news_outlet_link = data.get('provider').get('url')
         news_outlet_name = data.get('provider').get('name')
+
+        news_outlet_leaning = match_outlet_political_leaning(clean_url(news_outlet_link))
 
         script_content = page.locator('//*[@id="atomic"]/body/script[4]')
         await script_content.wait_for(state="attached")
@@ -60,6 +118,9 @@ async def get_article_data(page):
             "keywords": news_keywords,
             "title": og_title,
             "description": og_description,
+            "democrat_keywords": mentioned_democrats, 
+            "republican_keywords": mentioned_republicans,
+            "article_classification": article_classification,
             "image_url": og_image,
             "body": body,
             "min_read": min_read,
@@ -69,6 +130,7 @@ async def get_article_data(page):
             "num_comments": num_comments,
             "outlet_link": news_outlet_link,
             "outlet_name": news_outlet_name,
+            "outlet_leaning": news_outlet_leaning,
             "category": category_label
         }
     except Exception as e:
@@ -205,9 +267,19 @@ async def parse_comment_sections(iframe_locator, _page, browser):
                     _type = " ".join(_type[:3])
 
                 print(comment_text)
-                comments.append({"comment_text": comment_text, "type": _type, "last_posted": time_posted})
-
-            comments_section.append({'source_article': source_article_data, "comments": comments})
+                comment_democrat_keywords = mentions_politicians(process_string(comment_text), democrat_names)
+                comment_republican_keywords = mentions_politicians(process_string(comment_text), republican_names)
+                comment_classification = get_classification(comment_democrat_keywords, comment_republican_keywords)
+            
+                comments.append({
+                    "comment_text": comment_text, 
+                    "type": _type, 
+                    "last_posted": time_posted, 
+                    "democrat_keywords": comment_democrat_keywords, 
+                    "republican_keywords": comment_republican_keywords, 
+                    "comment_classification": comment_classification
+                })
+                comments_section.append({'source_article': source_article_data, "comments": comments})
 
     return comments_section
 
@@ -425,7 +497,9 @@ async def process_link(link, p):
     collection_users = db['Users']
     if section_users.__len__() > 0:
         write_to_mongodb(collection_users, section_users, "username")
+        print("wrote to mongodb")
 
+    # TODO: instead of writing to Users, analyze article text based on whether they mention politician name and group them in their respective collection 
 
 # Run the job
 async def job():
