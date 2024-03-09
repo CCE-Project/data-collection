@@ -20,21 +20,46 @@ COPY . .
 ENV PYTHONUNBUFFERED=1
 
 # Ensure scripts have execute permissions
-RUN chmod +x /usr/src/app/articles_scraper.py /usr/src/app/users_scraper.py
+RUN chmod +x /usr/src/app/*.py
 
 # Install cron
 RUN apt-get update && apt-get -y install cron
 
 # Create cron jobs with output redirection
-RUN echo "0 0 * * * root /usr/local/bin/python /usr/src/app/articles_scraper.py >> /var/log/cron.log 2>&1" > /etc/cron.d/playwright-cron-articles-12am
-RUN echo "0 6 * * * root /usr/local/bin/python /usr/src/app/articles_scraper.py >> /var/log/cron.log 2>&1" > /etc/cron.d/playwright-cron-articles-6am
-RUN echo "0 12 * * * root /usr/local/bin/python /usr/src/app/articles_scraper.py >> /var/log/cron.log 2>&1" > /etc/cron.d/playwright-cron-articles-12pm
-RUN echo "0 18 * * * root /usr/local/bin/python /usr/src/app/articles_scraper.py >> /var/log/cron.log 2>&1" > /etc/cron.d/playwright-cron-articles-6pm
 
-RUN echo "0 0 * * * root /usr/local/bin/python /usr/src/app/users_scraper.py >> /var/log/cron.log 2>&1" > /etc/cron.d/playwright-cron-users-12am
-RUN echo "0 6 * * * root /usr/local/bin/python /usr/src/app/users_scraper.py >> /var/log/cron.log 2>&1" > /etc/cron.d/playwright-cron-users-6am
-RUN echo "0 12 * * * root /usr/local/bin/python /usr/src/app/users_scraper.py >> /var/log/cron.log 2>&1" > /etc/cron.d/playwright-cron-users-12pm
-RUN echo "0 18 * * * root /usr/local/bin/python /usr/src/app/users_scraper.py >> /var/log/cron.log 2>&1" > /etc/cron.d/playwright-cron-users-6pm
+# Articles scraper cron jobs
+
+# Today News
+RUN echo "0 0,6,12,18 * * * root /usr/local/bin/python /usr/src/app/articles_scraper_today_news.py >> /var/log/cron.log 2>&1" > /etc/cron.d/playwright-cron-articles-today-news
+# US
+RUN echo "0 0,6,12,18 * * * root /usr/local/bin/python /usr/src/app/articles_scraper_us.py >> /var/log/cron.log 2>&1" > /etc/cron.d/playwright-cron-articles-us
+# Politics
+RUN echo "0 0,6,12,18 * * * root /usr/local/bin/python /usr/src/app/articles_scraper_politics.py >> /var/log/cron.log 2>&1" > /etc/cron.d/playwright-cron-articles-politics
+# 2024 Election
+RUN echo "0 0,6,12,18 * * * root /usr/local/bin/python /usr/src/app/articles_scraper_2024_election.py >> /var/log/cron.log 2>&1" > /etc/cron.d/playwright-cron-articles-2024-election
+# Health
+RUN echo "0 0,6,12,18 * * * root /usr/local/bin/python /usr/src/app/articles_scraper_health.py >> /var/log/cron.log 2>&1" > /etc/cron.d/playwright-cron-articles-health
+# Science
+RUN echo "0 0,6,12,18 * * * root /usr/local/bin/python /usr/src/app/articles_scraper_science.py >> /var/log/cron.log 2>&1" > /etc/cron.d/playwright-cron-articles-science
+# The360
+RUN echo "0 0,6,12,18 * * * root /usr/local/bin/python /usr/src/app/articles_scraper_the360.py >> /var/log/cron.log 2>&1" > /etc/cron.d/playwright-cron-articles-the360
+
+# Users scraper cron jobs
+
+# Today News
+RUN echo "0 0,6,12,18 * * * root /usr/local/bin/python /usr/src/app/users_scraper_today_news.py >> /var/log/cron.log 2>&1" > /etc/cron.d/playwright-cron-users-today-news
+# US
+RUN echo "0 0,6,12,18 * * * root /usr/local/bin/python /usr/src/app/users_scraper_us.py >> /var/log/cron.log 2>&1" > /etc/cron.d/playwright-cron-users-us
+# Politics
+RUN echo "0 0,6,12,18 * * * root /usr/local/bin/python /usr/src/app/users_scraper_politics.py >> /var/log/cron.log 2>&1" > /etc/cron.d/playwright-cron-users-politics
+# 2024 Election
+RUN echo "0 0,6,12,18 * * * root /usr/local/bin/python /usr/src/app/users_scraper_2024_election.py >> /var/log/cron.log 2>&1" > /etc/cron.d/playwright-cron-users-2024-election
+# Health
+RUN echo "0 0,6,12,18 * * * root /usr/local/bin/python /usr/src/app/users_scraper_health.py >> /var/log/cron.log 2>&1" > /etc/cron.d/playwright-cron-users-health
+# Science
+RUN echo "0 0,6,12,18 * * * root /usr/local/bin/python /usr/src/app/users_scraper_science.py >> /var/log/cron.log 2>&1" > /etc/cron.d/playwright-cron-users-science
+# The360
+RUN echo "0 0,6,12,18 * * * root /usr/local/bin/python /usr/src/app/users_scraper_the360.py >> /var/log/cron.log 2>&1" > /etc/cron.d/playwright-cron-users-the360
 
 # Give execution permissions to cron jobs
 RUN chmod 0644 /etc/cron.d/playwright-cron-*
