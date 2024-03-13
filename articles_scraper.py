@@ -14,7 +14,7 @@ with open(config_path, 'r') as f:
     config = json.load(f)
 
 PAGE_RETRIES = 5
-REPLY_DEPTH = 10
+# REPLY_DEPTH = 10
 
 uri = config['mongodb_connection_string']
 mongo_client = MongoClient(uri, w=1, tlsCAFile=certifi.where())
@@ -131,18 +131,25 @@ async def parse_threads(comment_threads, comments):
 
 
 async def parse_replies(thread_locator, comments):
-    global REPLY_DEPTH
+    # global REPLY_DEPTH
+    # try:
+    #     if REPLY_DEPTH == 0:
+    #         raise Exception("error")
+    #     else:
+    #         REPLY_DEPTH -= 1
+    #         replies_loc = ".spcv_children-list"
+    #         replies = thread_locator.locator(replies_loc)
+    #         replies = await replies.locator("li").element_handles()
+    #         await parse_threads(replies, comments)
+    # except Exception as e:
+    #     REPLY_DEPTH = 10
+    #     print("No more replies in thread to parse")
     try:
-        if REPLY_DEPTH == 0:
-            raise Exception("error")
-        else:
-            REPLY_DEPTH -= 1
-            replies_loc = ".spcv_children-list"
-            replies = thread_locator.locator(replies_loc)
-            replies = await replies.locator("li").element_handles()
-            await parse_threads(replies, comments)
+        replies_loc = ".spcv_children-list"
+        replies = thread_locator.locator(replies_loc)
+        replies = await replies.locator("li").element_handles()
+        await parse_threads(replies, comments)
     except Exception as e:
-        REPLY_DEPTH = 10
         print("No more replies in thread to parse")
 
 

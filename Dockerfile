@@ -44,6 +44,11 @@ RUN echo "0 0,6,12,18 * * * root /usr/local/bin/python /usr/src/app/articles_scr
 # The360
 RUN echo "0 0,6,12,18 * * * root /usr/local/bin/python /usr/src/app/articles_scraper_the360.py >> /var/log/cron.log 2>&1" > /etc/cron.d/playwright-cron-articles-the360
 
+
+# Testing reply network
+RUN echo "0 0,6,12,18 * * * root /usr/local/bin/python /usr/src/app/articles_scraper.py >> /var/log/cron.log 2>&1" > /etc/cron.d/playwright-cron-articles
+
+
 # Users scraper cron jobs
 
 # Today News
