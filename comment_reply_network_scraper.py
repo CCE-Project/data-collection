@@ -352,7 +352,7 @@ async def process_link(link, p):
         print(e)
 
     # Write to MongoDB
-    collection_articles = db['Articles']
+    collection_articles = db['Reply-Network']
     if section_articles.__len__() > 0:
         write_to_mongodb(collection_articles, section_articles, "url")
 
