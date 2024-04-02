@@ -181,7 +181,7 @@ async def parse_inner_replies(replies, comments, i):
                 }
             )
 
-            await parse_replies(reply, comments, i.append(inner_i))
+            await parse_replies(reply, temp, i.append(inner_i))
         except Exception as e:
             print(e)
         reply.dispose()
