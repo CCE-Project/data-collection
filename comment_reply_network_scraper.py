@@ -168,7 +168,7 @@ async def parse_inner_replies(replies, comments, i):
 
             temp = comments
             for ind in i:
-                temp = comments[ind]['replies']
+                temp = temp[ind]['replies']
 
             temp.append(
                 {
@@ -181,7 +181,7 @@ async def parse_inner_replies(replies, comments, i):
                 }
             )
 
-            await parse_replies(reply, temp, i.append(inner_i))
+            await parse_replies(reply, comments, i.append(inner_i))
         except Exception as e:
             print(e)
         reply.dispose()
