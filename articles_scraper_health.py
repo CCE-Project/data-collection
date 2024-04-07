@@ -7,6 +7,7 @@ import re
 import asyncio
 import certifi
 import os
+from datetime import datetime
 
 script_dir = os.path.dirname(os.path.realpath(__file__))
 config_path = os.path.join(script_dir, 'config.json')
@@ -97,7 +98,11 @@ async def parse_threads(comment_threads, comments):
 
             comment_time_loc = 'time[data-spot-im-class="message-timestamp"]'
             comment_time_element = await root_comment_element.query_selector(comment_time_loc)
-            time_commented = await comment_time_element.inner_text()
+            time_commented = await comment_time_element.get_attribute('title')
+            date_format = "%d %b, %Y %I:%M %p"
+
+            dt_object = datetime.strptime(time_commented, date_format)
+            timestamp = dt_object.timestamp()
 
             comment_text_loc = "p"
             comment_text_element = await root_comment_element.query_selector(comment_text_loc)
@@ -119,7 +124,7 @@ async def parse_threads(comment_threads, comments):
 
             comments.append({
                 "nick_name": nick_name,
-                "time_commented_ago": time_commented,
+                "time_commented_ago": timestamp,
                 "likes": likes,
                 "dislikes": dislikes,
                 "text": comment_text
