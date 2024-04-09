@@ -87,10 +87,10 @@ async def intercept_request(route, request, interception_complete, comments):
             }
             response = requests.post(request.url, json=data, headers=request.headers)
             r_json = response.json()
-            users_in_convo = r_json['conversation']['users']
             if len(r_json['conversation']['comments']) == 0:
                 break
 
+            users_in_convo = r_json['conversation']['users']
             for comment in r_json['conversation']['comments']:
                 author = users_in_convo[comment['user_id']]
 
@@ -121,6 +121,11 @@ async def intercept_request(route, request, interception_complete, comments):
         except Exception as e:
             print(e)
             i += 1
+            if i == 5000:
+                break
+
+    interception_complete.set()
+    await route.continue_()
 
     interception_complete.set()
     await route.continue_()
