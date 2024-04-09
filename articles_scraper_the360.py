@@ -1,27 +1,22 @@
 import json
 from playwright.async_api import async_playwright
-from playwright.async_api import TimeoutError
-from playwright.async_api import Error
+import requests
 from pymongo import MongoClient
 import re
 import asyncio
 import certifi
 import os
-from datetime import datetime
+import html
 
 script_dir = os.path.dirname(os.path.realpath(__file__))
 config_path = os.path.join(script_dir, 'config.json')
 with open(config_path, 'r') as f:
     config = json.load(f)
-
-PAGE_RETRIES = 5
-REPLY_DEPTH = 10
-
 uri = config['mongodb_connection_string']
 mongo_client = MongoClient(uri, w=1, tlsCAFile=certifi.where())
 db = mongo_client['NLP-Cross-Cutting-Exposure']
-
 visited_articles = set()
+PAGE_RETRIES = 5
 
 
 # Get article data for whole page
@@ -55,7 +50,6 @@ async def get_article_data(page):
         await page.evaluate(await script_content.text_content())
         category_label = await page.evaluate('() => window.YAHOO.context.meta.categoryLabel')
 
-        print(og_title)
         return {
             "url": og_url,
             "keywords": news_keywords,
@@ -77,126 +71,85 @@ async def get_article_data(page):
         return None
 
 
-# Find and open comments button
-async def open_comments_button(_page):
-    button_class = '.caas-button.view-cmts-cta.showCmtCount'
-    button_element = _page.locator(button_class)
-    await button_element.scroll_into_view_if_needed()
-    await button_element.wait_for(state="attached")
-    await button_element.first.click()
+async def intercept_request(route, request, interception_complete, comments):
+    print("interception")
+    # Log the URL of the intercepted request
+    i = 0
+    while True:
+        data = {
+            "sort_by": "best",
+            "offset": 25 * i,
+            "count": 25,
+            "message_id": None,
+            "depth": 15,
+            "child_count": 15
+        }
+        response = requests.post(request.url, json=data, headers=request.headers)
+        r_json = response.json()
+        users_in_convo = r_json['conversation']['users']
+        if len(r_json['conversation']['comments']) == 0:
+            break
 
+        for comment in r_json['conversation']['comments']:
+            author = users_in_convo[comment['user_id']]
 
-async def parse_threads(comment_threads, comments):
-    for thread in comment_threads:
-        try:
-            root_comment_loc = ".components-MessageLayout-index__appearance-component"
-            root_comment_element = await thread.query_selector(root_comment_loc)
+            content_a = []
+            for content in comment['content']:
+                if 'text' in content:
+                    content_a.append(html.unescape(re.sub(r'<.*?>', '', content['text'])))
+                if 'originalUrl' in content:
+                    content_a.append(content['originalUrl'])
 
-            nick_name_loc = ".src-components-Username-index__button"
-            nick_name_span = await root_comment_element.query_selector(nick_name_loc)
-            nick_name = await nick_name_span.inner_text()
-
-            comment_time_loc = 'time[data-spot-im-class="message-timestamp"]'
-            comment_time_element = await root_comment_element.query_selector(comment_time_loc)
-            time_commented = await comment_time_element.get_attribute('title')
-            date_format = "%d %b, %Y %I:%M %p"
-
-            dt_object = datetime.strptime(time_commented, date_format)
-            timestamp = dt_object.timestamp()
-
-            comment_text_loc = "p"
-            comment_text_element = await root_comment_element.query_selector(comment_text_loc)
-            comment_text = await comment_text_element.inner_text()
-
-            print(comment_text)
-
-            likes = 0
-            dislikes = 0
-            votes_loc = ".components-MessageActions-components-VoteButtons-index__votesCounter"
-            votes_elements = await root_comment_element.query_selector_all(votes_loc)
-            i = 0
-            for vote in votes_elements:
-                if i == 0:
-                    i += 1
-                    likes = int((await vote.inner_text()))
-                else:
-                    dislikes = int((await vote.inner_text()))
+            replies = []
+            if len(comment['replies']) > 0:
+                replies = get_formatted_replies(users_in_convo, comment['replies'])
 
             comments.append({
-                "nick_name": nick_name,
-                "time_commented_ago": timestamp,
-                "likes": likes,
-                "dislikes": dislikes,
-                "text": comment_text
+                'display_name': author['display_name'],
+                'user_name': author['user_name'],
+                'replies_count': comment['replies_count'],
+                'time_commented': comment['written_at'],
+                'content': content_a,
+                'rank': comment['rank'],
+                'replies': replies,
+                'id': comment['id'],
+                'conversation_id': r_json['conversation']['conversation_id']
             })
-            await parse_replies(thread, comments)
-        except Exception as e:
-            print(e)
-        thread.dispose()
+        i += 1
+        await asyncio.sleep(1)
+
+    interception_complete.set()
+    await route.continue_()
 
 
-async def parse_replies(thread_locator, comments):
-    global REPLY_DEPTH
-    try:
-        if REPLY_DEPTH == 0:
-            raise Exception("error")
-        else:
-            REPLY_DEPTH -= 1
-            replies_loc = ".spcv_children-list"
-            replies = thread_locator.locator(replies_loc)
-            replies = await replies.locator("li").element_handles()
-            await parse_threads(replies, comments)
-    except Exception as e:
-        REPLY_DEPTH = 10
-        print("No more replies in thread to parse")
+def get_formatted_replies(users_in_convo, replies):
+    r = []
+    for reply in replies:
+        author = users_in_convo[reply['user_id']]
 
+        content_a = []
+        for content in reply['content']:
+            if 'text' in content:
+                content_a.append(html.unescape(re.sub(r'<.*?>', '', content['text'])))
+            if 'originalUrl' in content:
+                content_a.append(content['originalUrl'])
 
-async def parse_comments(_page, iframe_locator, comments):
-    comments_list_loc = '.spcv_messages-list'
-    comment_threads = iframe_locator.locator(comments_list_loc)
-    print(comment_threads)
-    comment_threads = await comment_threads.locator("li").element_handles()
-    print(len(comment_threads))
+        replies_a = []
+        if len(reply['replies']) > 0:
+            replies_a = get_formatted_replies(users_in_convo, reply['replies'])
 
-    await parse_threads(comment_threads, comments)
+        r.append({
+            'display_name': author['display_name'],
+            'user_name': author['user_name'],
+            'replies_count': reply['replies_count'],
+            'time_commented': reply['written_at'],
+            'content': content_a,
+            'rank': reply['rank'],
+            'replies': replies_a,
+            'id': reply['id']
+        })
 
-
-# Get user data
-async def get_article_comments(_page):
-    # Activate comment section
-    try:
-        await open_comments_button(_page)
-    except Exception as e:
-        print("Could not find comment section skipping to next article")
-        return []
-
-    iframe_locator = _page.frame_locator('iframe[id^="jacSandbox_"]')
-    # Load all comments
-    load_comments_loc = ".spcv_load-more-messages"
-    print("Loading more users")
-    try:
-        button = iframe_locator.locator(load_comments_loc).first
-        while button:
-            await button.wait_for(state="attached")
-            await button.click()
-            button = iframe_locator.locator(load_comments_loc).first
-    except Exception as e:
-        print("Finished loading more users from comment section")
-
-    load_replies_loc = ".spcv_showMoreRepliesText"
-    print("Loading more replies")
-    try:
-        button = iframe_locator.locator(load_replies_loc).first
-        while button:
-            await button.wait_for(state="attached")
-            await button.click()
-            button = iframe_locator.locator(load_replies_loc).first
-    except Exception as e:
-        print("Finished loading more replies from comment section")
-
-    comments = []
-    await parse_comments(_page, iframe_locator, comments)
-    return comments
+    return r
 
 
 # Write array to MongoDB
@@ -217,6 +170,20 @@ async def navigate_to_page(page, link):
     for i in range(0, PAGE_RETRIES):
         try:
             await page.goto(link, timeout=15000, wait_until="domcontentloaded")
+            break
+        except Exception as e:
+            print(f"Error: {str(e)}")
+            await asyncio.sleep(1)
+
+
+async def navigate_to_article(page, link):
+    for i in range(0, PAGE_RETRIES):
+        try:
+            await page.goto(link, timeout=15000, wait_until="domcontentloaded")
+            comments_button = await page.query_selector(
+                '.link.caas-button.noborder.caas-tooltip.flickrComment.caas-comment.top')
+            await comments_button.click(timeout=15000)
+            await asyncio.sleep(15)
             break
         except Exception as e:
             print(f"Error: {str(e)}")
@@ -252,12 +219,19 @@ async def scrape_section(link, p, section_articles):
             article_page = await create_new_page(browser)
             await article_page.set_viewport_size({"width": 1600, "height": 1200})
 
-            await navigate_to_page(article_page, article_link)
+            interception_complete = asyncio.Event()
+            comments = []
+            await article_page.route("https://api-2-0.spot.im/v1.0.0/conversation/read",
+                                     handler=lambda route, request: asyncio.create_task(intercept_request(route,
+                                                                                                          request,
+                                                                            interception_complete, comments)))
 
+            await navigate_to_article(article_page, article_link)
+            await interception_complete.wait()
+            print("here")
             try:
                 article_data = await get_article_data(article_page)
-                comments_data = await get_article_comments(article_page)
-                article_data["comments"] = comments_data
+                article_data["comments"] = comments
                 if article_data is not None:
                     section_articles.append(article_data)
             except Exception as e:
