@@ -71,9 +71,16 @@ async def get_article_data(page):
         return None
 
 
-async def intercept_request(route, request, interception_complete, comments):
+async def intercept_request(route, request, interception_complete, request_url, request_headers):
     print("interception")
     # Log the URL of the intercepted request
+    request_url[0] = request.url
+    request_headers[0] = request.headers
+    interception_complete.set()
+    await route.continue_()
+
+
+async def get_comments(request_url, request_header, comments):
     i = 0
     while True:
         try:
@@ -85,7 +92,8 @@ async def intercept_request(route, request, interception_complete, comments):
                 "depth": 15,
                 "child_count": 15
             }
-            response = requests.post(request.url, json=data, headers=request.headers)
+
+            response = requests.post(request_url, json=data, headers=request_header)
             r_json = response.json()
             if len(r_json['conversation']['comments']) == 0:
                 break
@@ -123,12 +131,6 @@ async def intercept_request(route, request, interception_complete, comments):
             i += 1
             if i == 5000:
                 break
-
-    interception_complete.set()
-    await route.continue_()
-
-    interception_complete.set()
-    await route.continue_()
 
 
 def get_formatted_replies(users_in_convo, replies):
@@ -189,14 +191,16 @@ async def navigate_to_article(page, link):
     for i in range(0, PAGE_RETRIES):
         try:
             await page.goto(link, timeout=15000, wait_until="domcontentloaded")
-            comments_button = await page.query_selector(
+            comments_button = await page.wait_for_selector(
                 '.link.caas-button.noborder.caas-tooltip.flickrComment.caas-comment.top')
-            await comments_button.click(timeout=15000)
+            await comments_button.click()
             await asyncio.sleep(15)
-            break
+            return True
         except Exception as e:
             print(f"Error: {str(e)}")
             await asyncio.sleep(1)
+
+    return False
 
 
 # Scrolls down to generate more articles
@@ -230,24 +234,28 @@ async def scrape_section(link, p, section_articles):
 
             interception_complete = asyncio.Event()
             comments = []
+
+            request_url = ['e']
+            request_headers = ['e']
             await article_page.route("https://api-2-0.spot.im/v1.0.0/conversation/read",
                                      handler=lambda route, request: asyncio.create_task(intercept_request(route,
                                                                                                           request,
-                                                                            interception_complete, comments)))
+                                                                            interception_complete, request_url, request_headers)))
 
-            await navigate_to_article(article_page, article_link)
-            await interception_complete.wait()
-            print("here")
-            try:
-                article_data = await get_article_data(article_page)
-                article_data["comments"] = comments
-                if article_data is not None:
-                    section_articles.append(article_data)
-            except Exception as e:
-                print(e)
+            if await navigate_to_article(article_page, article_link):
+                await interception_complete.wait()
+                print(request_url[0], request_headers[0])
+                try:
+                    article_data = await get_article_data(article_page)
+                    await get_comments(request_url[0], request_headers[0], comments)
+                    article_data["comments"] = comments
+                    if article_data is not None:
+                        section_articles.append(article_data)
+                except Exception as e:
+                    print(e)
 
-            await article_page.close()
-            print("finished article")
+                await article_page.close()
+                print("finished article")
 
     await page.close()
     await browser.close()
