@@ -244,22 +244,21 @@ async def scrape_section(link, p, section_articles):
 
             if await navigate_to_article(article_page, article_link):
                 await interception_complete.wait()
-                print(request_url[0], request_headers[0])
+                print(request_url[0])
                 try:
                     article_data = await get_article_data(article_page)
+                    await article_page.close()
+
                     await get_comments(request_url[0], request_headers[0], comments)
                     article_data["comments"] = comments
                     if article_data is not None:
                         section_articles.append(article_data)
                 except Exception as e:
                     print(e)
-
+                    await article_page.close()
+            else:
                 await article_page.close()
-                print("finished article")
-
-    await page.close()
-    await browser.close()
-    print("finished section")
+            print("finished article")
 
 
 # Create new page given browser
