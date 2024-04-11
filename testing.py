@@ -102,22 +102,25 @@ async def get_users(request_url, request_header, users):
             }
 
             response = requests.post(request_url, json=data, headers=request_header)
-            r_json = response.json()
-            if len(r_json['conversation']['comments']) == 0:
+            if response.status_code == 200:
+                r_json = response.json()
+                if len(r_json['conversation']['comments']) == 0:
+                    break
+                users_in_convo = r_json['conversation']['users']
+                for user_id, user in users_in_convo.items():
+                    if not (user_id in users):
+                        print(user['id'])
+                        users[user_id] = {
+                            "id": user['id'],
+                            "display_name": user['display_name'],
+                            "image_id": user['image_id'],
+                            "user_name": user['user_name'],
+                            "reputation": user['reputation']
+                        }
+                i += 1
+                await asyncio.sleep(0.5)
+            else:
                 break
-            users_in_convo = r_json['conversation']['users']
-            for user_id, user in users_in_convo.items():
-                if not (user_id in users):
-                    print(user['id'])
-                    users[user_id] = {
-                        "id": user['id'],
-                        "display_name": user['display_name'],
-                        "image_id": user['image_id'],
-                        "user_name": user['user_name'],
-                        "reputation": user['reputation']
-                    }
-            i += 1
-            await asyncio.sleep(1)
         except Exception as e:
             print(e)
             i += 1
@@ -132,15 +135,19 @@ async def get_comments_from_users(users, request_headers):
             try:
                 url = f'https://api-2-0.spot.im/v1.0.0/profile/user/{user_id}/activity?offset={i * 8}&count=8'
                 response = requests.get(url, headers=request_headers)
-                r_json = response.json()
-                if not (r_json['items'] is None):
-                    if len(r_json['items']) == 0:
+                if response.status_code == 200:
+                    r_json = response.json()
+                    if not (r_json['items'] is None):
+                        if len(r_json['items']) == 0:
+                            break
+                        users[user_id]['items'] = r_json['items']
+                        i += 1
+                        await asyncio.sleep(0.5)
+                    else:
+                        users.pop(user_id)
                         break
-                    users[user_id]['items'] = r_json['items']
-                    i += 1
                     await asyncio.sleep(0.5)
                 else:
-                    users.pop(user_id)
                     break
             except Exception as e:
                 print(e)
@@ -216,7 +223,6 @@ async def scrape_section(link, p, section_users):
                 '.html') and 'news.yahoo.com' in article_link:
             visited_articles.add(article_link)
             article_page = await create_new_page(browser)
-            await article_page.set_viewport_size({"width": 1600, "height": 1200})
 
             interception_complete = asyncio.Event()
             interception_complete_two = asyncio.Event()
@@ -244,15 +250,18 @@ async def scrape_section(link, p, section_users):
 
                     iframe_locator = article_page.frame_locator('iframe[id^="jacSandbox_"]')
                     profile_locator = 'button[data-spot-im-class="user-info-username"]'
-                    profile_button = iframe_locator.locator(profile_locator)
-                    await profile_button.click()
+                    profile_buttons = iframe_locator.locator(profile_locator).element_handles()
+                    if profile_buttons:
+                        await profile_buttons[0].click()
+                        await profile_buttons.dispose()
+                        await interception_complete_two.wait()
+                        await article_page.close()
+                        await get_comments_from_users(users, request_users_header[0])
 
-                    await interception_complete_two.wait()
-                    await article_page.close()
-                    await get_comments_from_users(users, request_users_header[0])
-
-                    for user_id, user_data in users:
-                        section_users.append(user_data)
+                        for user_id, user_data in users:
+                            section_users.append(user_data)
+                    else:
+                        await article_page.close()
                 except Exception as e:
                     print(e)
                     await article_page.close()
@@ -273,7 +282,7 @@ async def create_new_page(browser):
                                   bypass_csp=True,
                                   java_script_enabled=True,
                                   service_workers="block",
-                                  reduced_motion="reduce")
+                                  reduced_motion="reduce", strict_selectors=False)
     page.set_default_timeout(15000)
     return page
 

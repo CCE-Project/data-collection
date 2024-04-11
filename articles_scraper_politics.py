@@ -208,7 +208,7 @@ async def navigate_to_article(page, link):
 
 # Scrolls down to generate more articles
 async def generate_more_articles(page, link):
-    duration = 1
+    duration = 30
     for i in range(duration):
         await page.evaluate('window.scrollTo(0, document.body.scrollHeight);')
         await asyncio.sleep(1)
