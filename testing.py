@@ -80,7 +80,15 @@ async def intercept_request(route, request, interception_complete, request_url, 
     await route.continue_()
 
 
-async def get_comments(request_url, request_header, comments):
+async def intercept_users_request(route, request, interception_complete, request_headers):
+    print("interception")
+    # Log the URL of the intercepted request
+    request_headers[0] = request.headers
+    interception_complete.set()
+    await route.continue_()
+
+
+async def get_users(request_url, request_header, users):
     i = 0
     while True:
         try:
@@ -94,41 +102,22 @@ async def get_comments(request_url, request_header, comments):
             }
 
             response = requests.post(request_url, json=data, headers=request_header)
-            if response.status_code == 200:
-                r_json = response.json()
-                if len(r_json['conversation']['comments']) == 0:
-                    break
-
-                users_in_convo = r_json['conversation']['users']
-                for comment in r_json['conversation']['comments']:
-                    author = users_in_convo[comment['user_id']]
-
-                    content_a = []
-                    for content in comment['content']:
-                        if 'text' in content:
-                            content_a.append(html.unescape(re.sub(r'<.*?>', '', content['text'])))
-                        if 'originalUrl' in content:
-                            content_a.append(content['originalUrl'])
-
-                    replies = []
-                    if len(comment['replies']) > 0:
-                        replies = get_formatted_replies(users_in_convo, comment['replies'])
-
-                    comments.append({
-                        'display_name': author['display_name'],
-                        'user_name': author['user_name'],
-                        'replies_count': comment['replies_count'],
-                        'time_commented': comment['written_at'],
-                        'content': content_a,
-                        'rank': comment['rank'],
-                        'replies': replies,
-                        'id': comment['id'],
-                        'conversation_id': r_json['conversation']['conversation_id']
-                    })
-                i += 1
-                await asyncio.sleep(1)
-            else:
+            r_json = response.json()
+            if len(r_json['conversation']['comments']) == 0:
                 break
+            users_in_convo = r_json['conversation']['users']
+            for user_id, user in users_in_convo.items():
+                if not (user_id in users):
+                    print(user['id'])
+                    users[user_id] = {
+                        "id": user['id'],
+                        "display_name": user['display_name'],
+                        "image_id": user['image_id'],
+                        "user_name": user['user_name'],
+                        "reputation": user['reputation']
+                    }
+            i += 1
+            await asyncio.sleep(1)
         except Exception as e:
             print(e)
             i += 1
@@ -136,34 +125,28 @@ async def get_comments(request_url, request_header, comments):
                 break
 
 
-def get_formatted_replies(users_in_convo, replies):
-    r = []
-    for reply in replies:
-        author = users_in_convo[reply['user_id']]
-
-        content_a = []
-        for content in reply['content']:
-            if 'text' in content:
-                content_a.append(html.unescape(re.sub(r'<.*?>', '', content['text'])))
-            if 'originalUrl' in content:
-                content_a.append(content['originalUrl'])
-
-        replies_a = []
-        if len(reply['replies']) > 0:
-            replies_a = get_formatted_replies(users_in_convo, reply['replies'])
-
-        r.append({
-            'display_name': author['display_name'],
-            'user_name': author['user_name'],
-            'replies_count': reply['replies_count'],
-            'time_commented': reply['written_at'],
-            'content': content_a,
-            'rank': reply['rank'],
-            'replies': replies_a,
-            'id': reply['id']
-        })
-
-    return r
+async def get_comments_from_users(users, request_headers):
+    for user_id, user_data in users.items():
+        i = 0
+        while True:
+            try:
+                url = f'https://api-2-0.spot.im/v1.0.0/profile/user/{user_id}/activity?offset={i * 8}&count=8'
+                response = requests.get(url, headers=request_headers)
+                r_json = response.json()
+                if not (r_json['items'] is None):
+                    if len(r_json['items']) == 0:
+                        break
+                    users[user_id]['items'] = r_json['items']
+                    i += 1
+                    await asyncio.sleep(0.5)
+                else:
+                    users.pop(user_id)
+                    break
+            except Exception as e:
+                print(e)
+                i += 1
+                if i == 10000:
+                    break
 
 
 # Write array to MongoDB
@@ -208,14 +191,14 @@ async def navigate_to_article(page, link):
 
 # Scrolls down to generate more articles
 async def generate_more_articles(page, link):
-    duration = 30
+    duration = 1
     for i in range(duration):
         await page.evaluate('window.scrollTo(0, document.body.scrollHeight);')
         await asyncio.sleep(1)
 
 
 # Scrape Yahoo News section
-async def scrape_section(link, p, section_articles):
+async def scrape_section(link, p, section_users):
     browser = await create_new_browser(p)
     page = await create_new_page(browser)
 
@@ -236,26 +219,40 @@ async def scrape_section(link, p, section_articles):
             await article_page.set_viewport_size({"width": 1600, "height": 1200})
 
             interception_complete = asyncio.Event()
-            comments = []
+            interception_complete_two = asyncio.Event()
+            users = {}
 
             request_url = ['e']
             request_headers = ['e']
+
+            request_users_header = ['e']
             await article_page.route("https://api-2-0.spot.im/v1.0.0/conversation/read",
                                      handler=lambda route, request: asyncio.create_task(intercept_request(route,
                                                                                                           request,
                                                                             interception_complete, request_url, request_headers)))
 
+            await article_page.route("https://api-2-0.spot.im/v1.0.0/profile/user/*/activity?offset=*",
+                                     handler=lambda route, request: asyncio.create_task(intercept_users_request(route,
+                                                                                                          request,
+                                                                                                          interception_complete_two,
+                                                                                                          request_users_header)))
+
             if await navigate_to_article(article_page, article_link):
                 await interception_complete.wait()
-                print(request_url[0])
                 try:
-                    article_data = await get_article_data(article_page)
-                    await article_page.close()
+                    await get_users(request_url[0], request_headers[0], users)
 
-                    await get_comments(request_url[0], request_headers[0], comments)
-                    article_data["comments"] = comments
-                    if article_data is not None:
-                        section_articles.append(article_data)
+                    iframe_locator = article_page.frame_locator('iframe[id^="jacSandbox_"]')
+                    profile_locator = 'button[data-spot-im-class="user-info-username"]'
+                    profile_button = iframe_locator.locator(profile_locator)
+                    await profile_button.click()
+
+                    await interception_complete_two.wait()
+                    await article_page.close()
+                    await get_comments_from_users(users, request_users_header[0])
+
+                    for user_id, user_data in users:
+                        section_users.append(user_data)
                 except Exception as e:
                     print(e)
                     await article_page.close()
@@ -283,28 +280,28 @@ async def create_new_page(browser):
 
 # Create new browser
 async def create_new_browser(p):
-    browser = await p.firefox.launch(headless=True)
+    browser = await p.firefox.launch(headless=False)
     return browser
 
 
 async def process_link(link, p):
-    section_articles = []
+    section_users = []
 
     try:
-        await scrape_section(link, p, section_articles)
+        await scrape_section(link, p, section_users)
     except Exception as e:
         print(e)
 
     # Write to MongoDB
-    collection_articles = db['Articles']
-    if section_articles.__len__() > 0:
-        write_to_mongodb(collection_articles, section_articles, "url")
+    collection_articles = db['Users']
+    if section_users.__len__() > 0:
+        write_to_mongodb(collection_articles, section_users, "url")
 
 
 # Run the job
 async def job():
     async with async_playwright() as p:
-        await process_link("https://news.yahoo.com", p)
+        await process_link("https://www.yahoo.com/news/health/", p)
 
         # tasks = [asyncio.create_task(process_link(link, p)) for link in links]
         # await asyncio.gather(*tasks)

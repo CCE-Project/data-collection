@@ -94,38 +94,41 @@ async def get_comments(request_url, request_header, comments):
             }
 
             response = requests.post(request_url, json=data, headers=request_header)
-            r_json = response.json()
-            if len(r_json['conversation']['comments']) == 0:
+            if response.status_code == 200:
+                r_json = response.json()
+                if len(r_json['conversation']['comments']) == 0:
+                    break
+
+                users_in_convo = r_json['conversation']['users']
+                for comment in r_json['conversation']['comments']:
+                    author = users_in_convo[comment['user_id']]
+
+                    content_a = []
+                    for content in comment['content']:
+                        if 'text' in content:
+                            content_a.append(html.unescape(re.sub(r'<.*?>', '', content['text'])))
+                        if 'originalUrl' in content:
+                            content_a.append(content['originalUrl'])
+
+                    replies = []
+                    if len(comment['replies']) > 0:
+                        replies = get_formatted_replies(users_in_convo, comment['replies'])
+
+                    comments.append({
+                        'display_name': author['display_name'],
+                        'user_name': author['user_name'],
+                        'replies_count': comment['replies_count'],
+                        'time_commented': comment['written_at'],
+                        'content': content_a,
+                        'rank': comment['rank'],
+                        'replies': replies,
+                        'id': comment['id'],
+                        'conversation_id': r_json['conversation']['conversation_id']
+                    })
+                i += 1
+                await asyncio.sleep(1)
+            else:
                 break
-
-            users_in_convo = r_json['conversation']['users']
-            for comment in r_json['conversation']['comments']:
-                author = users_in_convo[comment['user_id']]
-
-                content_a = []
-                for content in comment['content']:
-                    if 'text' in content:
-                        content_a.append(html.unescape(re.sub(r'<.*?>', '', content['text'])))
-                    if 'originalUrl' in content:
-                        content_a.append(content['originalUrl'])
-
-                replies = []
-                if len(comment['replies']) > 0:
-                    replies = get_formatted_replies(users_in_convo, comment['replies'])
-
-                comments.append({
-                    'display_name': author['display_name'],
-                    'user_name': author['user_name'],
-                    'replies_count': comment['replies_count'],
-                    'time_commented': comment['written_at'],
-                    'content': content_a,
-                    'rank': comment['rank'],
-                    'replies': replies,
-                    'id': comment['id'],
-                    'conversation_id': r_json['conversation']['conversation_id']
-                })
-            i += 1
-            await asyncio.sleep(1)
         except Exception as e:
             print(e)
             i += 1
