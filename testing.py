@@ -129,6 +129,7 @@ async def get_users(request_url, request_header, users):
 
 
 async def get_comments_from_users(users, request_headers):
+    user_ids_remove = []
     for user_id, user_data in users.items():
         i = 0
         while True:
@@ -144,7 +145,7 @@ async def get_comments_from_users(users, request_headers):
                         i += 1
                         await asyncio.sleep(0.5)
                     else:
-                        users.pop(user_id)
+                        user_ids_remove.append(user_id)
                         break
                     await asyncio.sleep(0.5)
                 else:
@@ -154,6 +155,9 @@ async def get_comments_from_users(users, request_headers):
                 i += 1
                 if i == 10000:
                     break
+
+    for remove in user_ids_remove:
+        users.pop(remove)
 
 
 # Write array to MongoDB
@@ -198,7 +202,7 @@ async def navigate_to_article(page, link):
 
 # Scrolls down to generate more articles
 async def generate_more_articles(page, link):
-    duration = 1
+    duration = 30
     for i in range(duration):
         await page.evaluate('window.scrollTo(0, document.body.scrollHeight);')
         await asyncio.sleep(1)
@@ -250,10 +254,9 @@ async def scrape_section(link, p, section_users):
 
                     iframe_locator = article_page.frame_locator('iframe[id^="jacSandbox_"]')
                     profile_locator = 'button[data-spot-im-class="user-info-username"]'
-                    profile_buttons = iframe_locator.locator(profile_locator).element_handles()
+                    profile_buttons = iframe_locator.locator(profile_locator).first
                     if profile_buttons:
-                        await profile_buttons[0].click()
-                        await profile_buttons.dispose()
+                        await profile_buttons.click()
                         await interception_complete_two.wait()
                         await article_page.close()
                         await get_comments_from_users(users, request_users_header[0])
@@ -289,7 +292,7 @@ async def create_new_page(browser):
 
 # Create new browser
 async def create_new_browser(p):
-    browser = await p.firefox.launch(headless=False)
+    browser = await p.firefox.launch(headless=True)
     return browser
 
 
