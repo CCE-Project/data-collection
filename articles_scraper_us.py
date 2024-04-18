@@ -123,7 +123,8 @@ async def get_comments(request_url, request_header, comments):
                         'rank': comment['rank'],
                         'replies': replies,
                         'id': comment['id'],
-                        'conversation_id': r_json['conversation']['conversation_id']
+                        'conversation_id': r_json['conversation']['conversation_id'],
+                        'user_id': r_json['conversation']['user_id']
                     })
                 i += 1
                 await asyncio.sleep(1)
@@ -160,7 +161,9 @@ def get_formatted_replies(users_in_convo, replies):
             'content': content_a,
             'rank': reply['rank'],
             'replies': replies_a,
-            'id': reply['id']
+            'id': reply['id'],
+            'conversation_id': reply['conversation']['conversation_id'],
+            'user_id': reply['conversation']['user_id']
         })
 
     return r
