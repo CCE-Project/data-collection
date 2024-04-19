@@ -1,17 +1,22 @@
-FROM python:3.11
+# Use a lightweight Python Alpine image
+FROM python:3.11-alpine
 
 # Set the working directory
 WORKDIR /usr/src/app
 
-# Copy requirements file and install dependencies
+# Copy only the requirements file
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
 
-# Install playwright browsers
-RUN playwright install
+# Install dependencies and clean up
+RUN apk --no-cache add --virtual .build-deps gcc musl-dev && \
+    pip install --no-cache-dir -r requirements.txt && \
+    apk del .build-deps
 
-# Install dependencies for Playwright
-RUN playwright install-deps
+# Install Playwright browsers and dependencies
+RUN apk --no-cache add nodejs npm && \
+    npm install -g playwright && \
+    playwright install && \
+    playwright install-deps
 
 # Copy the application code
 COPY . .
@@ -20,12 +25,19 @@ COPY . .
 ENV PYTHONUNBUFFERED=1
 
 # Ensure scripts have execute permissions
-RUN chmod +x /usr/src/app/*.py
+RUN chmod +x *.py
 
-# Install cron
-RUN apt-get update && apt-get -y install cron
+# Install cron and clean up
+RUN apk --no-cache add cron && \
+    rm -rf /var/cache/apk/*
 
-# Copy and run the setup script
-COPY setup_cron.sh /usr/src/app/setup_cron.sh
-RUN chmod +x /usr/src/app/setup_cron.sh
-CMD /usr/src/app/setup_cron.sh
+# Copy and set up the cron script
+COPY setup_cron.sh .
+RUN chmod +x setup_cron.sh && \
+    ./setup_cron.sh
+
+# Create the log file
+RUN touch /var/log/cron.log
+
+# Run cron in the foreground and tail the log file
+CMD ["crond", "-f", "-L", "/var/log/cron.log"]
