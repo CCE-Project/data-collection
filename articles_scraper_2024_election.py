@@ -127,13 +127,13 @@ async def get_comments(request_url, request_header, comments):
                         'user_id': r_json['conversation']['user_id']
                     })
                 i += 1
-                await asyncio.sleep(1)
+                await asyncio.sleep(0.5)
             else:
                 break
         except Exception as e:
             print(e)
             i += 1
-            if i == 5000:
+            if i >= 50:
                 break
 
 

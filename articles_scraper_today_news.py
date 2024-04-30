@@ -127,13 +127,13 @@ async def get_comments(request_url, request_header, comments):
                         'user_id': r_json['conversation']['user_id']
                     })
                 i += 1
-                await asyncio.sleep(1)
+                await asyncio.sleep(0.5)
             else:
                 break
         except Exception as e:
             print(e)
             i += 1
-            if i == 5000:
+            if i >= 50:
                 break
 
 
@@ -266,10 +266,6 @@ async def scrape_section(link, p, section_articles):
                 await article_page.close()
             print("finished article")
 
-    await page.close()
-    await browser.close()
-    print("finished section")
-
 
 # Create new page given browser
 async def create_new_page(browser):
@@ -307,7 +303,7 @@ async def process_link(link, p):
 # Run the job
 async def job():
     async with async_playwright() as p:
-        await process_link("https://news.yahoo.com", p)
+        await process_link("https://www.news.yahoo.com", p)
 
         # tasks = [asyncio.create_task(process_link(link, p)) for link in links]
         # await asyncio.gather(*tasks)

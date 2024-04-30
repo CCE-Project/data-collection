@@ -127,13 +127,13 @@ async def get_comments(request_url, request_header, comments):
                         'user_id': r_json['conversation']['user_id']
                     })
                 i += 1
-                await asyncio.sleep(1)
+                await asyncio.sleep(0.5)
             else:
                 break
         except Exception as e:
             print(e)
             i += 1
-            if i == 5000:
+            if i >= 50:
                 break
 
 
@@ -303,7 +303,7 @@ async def process_link(link, p):
 # Run the job
 async def job():
     async with async_playwright() as p:
-        await process_link("https://yahoo.com/news/tagged/360", p)
+        await process_link("https://www.yahoo.com/news/tagged/360", p)
 
         # tasks = [asyncio.create_task(process_link(link, p)) for link in links]
         # await asyncio.gather(*tasks)

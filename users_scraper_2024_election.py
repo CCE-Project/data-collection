@@ -2,11 +2,9 @@ import json
 from playwright.async_api import async_playwright
 import requests
 from pymongo import MongoClient
-import re
 import asyncio
 import certifi
 import os
-import html
 
 script_dir = os.path.dirname(os.path.realpath(__file__))
 config_path = os.path.join(script_dir, 'config.json')
@@ -17,59 +15,6 @@ mongo_client = MongoClient(uri, w=1, tlsCAFile=certifi.where())
 db = mongo_client['NLP-Cross-Cutting-Exposure']
 visited_articles = set()
 PAGE_RETRIES = 5
-
-
-# Get article data for whole page
-async def get_article_data(page):
-    try:
-        json_selector = 'script[type="application/ld+json"]'
-        json_content = await page.inner_text(json_selector)
-        data = json.loads(json_content)
-
-        wafer_json_content = await page.inner_text('.wafer-caas-data[type="application/json"]')
-        data_wafer = json.loads(wafer_json_content)
-
-        og_url = await page.evaluate('(document.querySelector("meta[property=\'og:url\']") || {}).content')
-        news_keywords = await page.evaluate('(document.querySelector("meta[name=\'news_keywords\']") || {}).content')
-        og_title = await page.evaluate('(document.querySelector("meta[property=\'og:title\']") || {}).content')
-        og_description = await page.evaluate(
-            '(document.querySelector("meta[property=\'og:description\']") || {}).content')
-        og_image = await page.evaluate('(document.querySelector("meta[property=\'og:image\']") || {}).content')
-        body = await page.inner_text('.caas-body')
-        min_read = await page.inner_text('.caas-attr-mins-read')
-        date_published = data.get("datePublished")
-        date_modified = data.get("dateModified")
-        authors = data.get('author')
-        num_comments = data_wafer.get('commentsCount')
-
-        news_outlet_link = data.get('provider').get('url')
-        news_outlet_name = data.get('provider').get('name')
-
-        script_content = page.locator('//*[@id="atomic"]/body/script[4]')
-        await script_content.wait_for(state="attached")
-        await page.evaluate(await script_content.text_content())
-        category_label = await page.evaluate('() => window.YAHOO.context.meta.categoryLabel')
-
-        return {
-            "url": og_url,
-            "keywords": news_keywords,
-            "title": og_title,
-            "description": og_description,
-            "image_url": og_image,
-            "body": body,
-            "min_read": min_read,
-            "date_published": date_published,
-            "date_modified": date_modified,
-            "authors": authors,
-            "num_comments": num_comments,
-            "outlet_link": news_outlet_link,
-            "outlet_name": news_outlet_name,
-            "category": category_label
-        }
-    except Exception as e:
-        print("Failed to get article data")
-        return None
-
 
 async def intercept_request(route, request, interception_complete, request_url, request_headers):
     print("interception")
@@ -124,7 +69,7 @@ async def get_users(request_url, request_header, users):
         except Exception as e:
             print(e)
             i += 1
-            if i == 5000:
+            if i >= 50:
                 break
 
 
@@ -153,7 +98,7 @@ async def get_comments_from_users(users, request_headers):
             except Exception as e:
                 print(e)
                 i += 1
-                if i == 10000:
+                if i >= 200:
                     break
 
     for remove in user_ids_remove:
